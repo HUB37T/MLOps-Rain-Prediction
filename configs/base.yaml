@@ -1,0 +1,14 @@
+location:
+  name: "FILKOM Universitas Brawijaya"
+  latitude: -7.9666
+  longitude: 112.6326
+  timezone: "Asia/Jakarta"
+
+prediction:
+  horizon_hours: 3
+  rain_threshold_mm: 0.1
+
+ingestion:
+  interval_minutes: 60
+  request_timeout_seconds: 30
+  max_retries: 3

@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# JavaScript
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Data and model artifacts
+data/raw/*
+data/processed/*
+data/predictions/*
+!data/**/.gitkeep
+models/*
+!models/README.md
+!models/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# ML and experiment artifacts
+mlruns/
+artifacts/
+.dvc/cache/
+
+# Runtime and logs
+logs/
+*.log
+tmp/
+
+# IDE and operating system
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local agent context and workflow
+CONTEXT.md
+docs/opencode-workflow.md

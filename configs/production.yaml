@@ -1,0 +1,3 @@
+environment: "production"
+predictor_backend: "model"
+log_level: "INFO"

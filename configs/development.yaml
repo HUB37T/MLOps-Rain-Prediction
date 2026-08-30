@@ -1,0 +1,3 @@
+environment: "development"
+predictor_backend: "mock"
+log_level: "DEBUG"
