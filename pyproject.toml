@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Aplikasi dan pipeline MLOps prediksi risiko hujan tiga jam ke depan."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.34,<1.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rain_prediction"]
@@ -16,6 +19,7 @@ packages = ["src/rain_prediction"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+addopts = "-q"
 
 [tool.ruff]
 line-length = 100
