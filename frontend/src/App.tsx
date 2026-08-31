@@ -22,6 +22,7 @@ type PredictionResponse = {
     decision_threshold: number;
     feature_timestamp: string;
     data_freshness_seconds: number;
+    freshness_status: "fresh" | "stale" | "unavailable";
     model: { version: string };
   } | null;
   warnings: { code: string; message: string }[];
@@ -37,6 +38,7 @@ type WeatherVariable = {
 };
 
 type WeatherResponse = {
+  server_time: string;
   status: "complete" | "partial" | "unavailable";
   current_weather_timestamp?: string;
   variables: Record<string, WeatherVariable>;
@@ -71,6 +73,101 @@ class ApiRequestError extends Error {
   constructor(readonly code: string) {
     super(code);
   }
+}
+
+type SessionClock = {
+  serverTimeMs: number | null;
+  monotonicTimeMs: number | null;
+  greatestServerTimeMs: number | null;
+};
+
+const SESSION_TIME_TOLERANCE_MS = 5_000;
+
+function verifyServerTime(value: unknown, clock: SessionClock): boolean {
+  if (typeof value !== "string") return false;
+  const serverTimeMs = Date.parse(value);
+  if (!Number.isFinite(serverTimeMs)) return false;
+
+  const monotonicTimeMs = performance.now();
+  if (clock.serverTimeMs === null || clock.monotonicTimeMs === null) {
+    clock.serverTimeMs = serverTimeMs;
+    clock.monotonicTimeMs = monotonicTimeMs;
+    clock.greatestServerTimeMs = serverTimeMs;
+    return true;
+  }
+
+  const elapsedMs = Math.max(0, monotonicTimeMs - clock.monotonicTimeMs);
+  const expectedServerTimeMs = clock.serverTimeMs + elapsedMs;
+  if (serverTimeMs > expectedServerTimeMs + SESSION_TIME_TOLERANCE_MS) return false;
+  if (
+    clock.greatestServerTimeMs !== null &&
+    serverTimeMs < clock.greatestServerTimeMs - SESSION_TIME_TOLERANCE_MS
+  ) {
+    return false;
+  }
+  if (serverTimeMs > clock.greatestServerTimeMs!) {
+    clock.serverTimeMs = serverTimeMs;
+    clock.monotonicTimeMs = monotonicTimeMs;
+    clock.greatestServerTimeMs = serverTimeMs;
+  }
+  return true;
+}
+
+function sessionTimeMs(clock: SessionClock): number | null {
+  if (clock.serverTimeMs === null || clock.monotonicTimeMs === null) return null;
+  return clock.serverTimeMs + Math.max(0, performance.now() - clock.monotonicTimeMs);
+}
+
+function resolveSessionPrediction(response: PredictionResponse, nowMs: number): PredictionResponse {
+  if (response.status !== "available" || response.prediction === null) return response;
+
+  const featureTimeMs = Date.parse(response.prediction.feature_timestamp);
+  const horizonEndMs = Date.parse(response.prediction.prediction_horizon.end);
+  if (!Number.isFinite(featureTimeMs) || !Number.isFinite(horizonEndMs)) {
+    return {
+      ...response,
+      status: "invalid",
+      prediction: null,
+      warnings: [
+        ...response.warnings,
+        {
+          code: "unverified_prediction",
+          message: "Prediksi saat ini tidak tersedia karena hasilnya tidak dapat diverifikasi.",
+        },
+      ],
+    };
+  }
+
+  const dataFreshnessSeconds = Math.max(0, Math.floor((nowMs - featureTimeMs) / 1_000));
+  if (nowMs >= horizonEndMs || dataFreshnessSeconds > 6 * 60 * 60) {
+    return {
+      ...response,
+      status: "unavailable",
+      prediction: null,
+      warnings: [
+        ...response.warnings.filter((warning) => warning.code !== "prediction_stale"),
+        { code: "prediction_expired", message: "Prediksi untuk periode saat ini belum tersedia." },
+      ],
+    };
+  }
+
+  const freshnessStatus = dataFreshnessSeconds <= 2 * 60 * 60 ? "fresh" : "stale";
+  const warnings = response.warnings.filter((warning) => warning.code !== "prediction_stale");
+  if (freshnessStatus === "stale") {
+    warnings.push({
+      code: "prediction_stale",
+      message: "Data belum diperbarui—jangan gunakan sebagai satu-satunya dasar keputusan.",
+    });
+  }
+  return {
+    ...response,
+    warnings,
+    prediction: {
+      ...response.prediction,
+      data_freshness_seconds: dataFreshnessSeconds,
+      freshness_status: freshnessStatus,
+    },
+  };
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -299,6 +396,9 @@ function PredictionHistory({ history }: { history: HistoryResponse }) {
 }
 
 function predictionErrorMessage(code: string, hasVerifiedData: boolean): string {
+  if (code === "unverified_time") {
+    return "Status waktu tidak dapat diverifikasi. Prediksi saat ini tidak tersedia.";
+  }
   if (hasVerifiedData) {
     return "Layanan belum dapat dihubungi. Menampilkan data terakhir yang berhasil dimuat.";
   }
@@ -317,7 +417,13 @@ export function App() {
   const [weatherError, setWeatherError] = useState(false);
   const [historyError, setHistoryError] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [sessionNowMs, setSessionNowMs] = useState<number | null>(null);
   const mountedRef = useRef(true);
+  const sessionClockRef = useRef<SessionClock>({
+    serverTimeMs: null,
+    monotonicTimeMs: null,
+    greatestServerTimeMs: null,
+  });
   const predictionRequestId = useRef(0);
   const weatherRequestId = useRef(0);
   const historyRequestId = useRef(0);
@@ -326,9 +432,13 @@ export function App() {
     const requestId = ++predictionRequestId.current;
     return fetchJson<PredictionResponse>("/api/v1/predictions/current")
       .then((data) => {
+        if (!verifyServerTime(data.server_time, sessionClockRef.current)) {
+          throw new ApiRequestError("unverified_time");
+        }
         if (mountedRef.current && requestId === predictionRequestId.current) {
           setResponse(data);
           setPredictionError(null);
+          setSessionNowMs(sessionTimeMs(sessionClockRef.current));
         }
       })
       .catch((error: unknown) => {
@@ -342,9 +452,13 @@ export function App() {
     const requestId = ++weatherRequestId.current;
     return fetchJson<WeatherResponse>("/api/v1/weather/current")
       .then((data) => {
+        if (!verifyServerTime(data.server_time, sessionClockRef.current)) {
+          throw new ApiRequestError("unverified_time");
+        }
         if (mountedRef.current && requestId === weatherRequestId.current) {
           setWeather(data);
           setWeatherError(false);
+          setSessionNowMs(sessionTimeMs(sessionClockRef.current));
         }
       })
       .catch(() => {
@@ -358,12 +472,16 @@ export function App() {
     const requestId = ++historyRequestId.current;
     return fetchJson<HistoryResponse>("/api/v1/predictions/history?slots=24")
       .then((data) => {
+        if (!verifyServerTime(data.server_time, sessionClockRef.current)) {
+          throw new ApiRequestError("unverified_time");
+        }
         if (!Array.isArray(data.slots)) {
           throw new ApiRequestError("history_unavailable");
         }
         if (mountedRef.current && requestId === historyRequestId.current) {
           setHistory(data);
           setHistoryError(false);
+          setSessionNowMs(sessionTimeMs(sessionClockRef.current));
         }
       })
       .catch(() => {
@@ -400,6 +518,17 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const updateSessionTime = () => {
+      if (mountedRef.current) {
+        setSessionNowMs(sessionTimeMs(sessionClockRef.current));
+      }
+    };
+    updateSessionTime();
+    const interval = window.setInterval(updateSessionTime, 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   if (isLoading) {
     return (
       <main className="page-shell" aria-busy="true">
@@ -408,9 +537,12 @@ export function App() {
     );
   }
 
-  const prediction = response?.prediction ?? null;
-  const statusMessage = response && response.status !== "available"
-    ? predictionStatusMessages[response.status]
+  const displayResponse = response && sessionNowMs !== null
+    ? resolveSessionPrediction(response, sessionNowMs)
+    : response;
+  const prediction = displayResponse?.prediction ?? null;
+  const statusMessage = displayResponse && displayResponse.status !== "available"
+    ? predictionStatusMessages[displayResponse.status]
     : null;
   const hasRecoverableError = predictionError !== null || weatherError || historyError;
 
@@ -427,10 +559,16 @@ export function App() {
       <section className="prediction-card" aria-labelledby="prediction-title">
         <div className="location-row">
           <span>Lokasi utama</span>
-          <strong>{response?.primary_location.name ?? "FILKOM Universitas Brawijaya"}</strong>
+          <strong>{displayResponse?.primary_location.name ?? "FILKOM Universitas Brawijaya"}</strong>
         </div>
 
-        {response?.warnings
+        {predictionError && response ? (
+          <p className="prediction-warning" role="status">
+            {predictionErrorMessage(predictionError, true)}
+          </p>
+        ) : null}
+
+        {displayResponse?.warnings
           .filter((warning) => warning.message !== statusMessage)
           .map((warning) => (
             <p className="prediction-warning" key={warning.code} role="status">

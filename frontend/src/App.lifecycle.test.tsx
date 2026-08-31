@@ -64,7 +64,7 @@ describe("prediction lifecycle states", () => {
         primary_location: { name: "FILKOM Universitas Brawijaya" },
         status: "available",
         prediction: {
-          prediction_horizon: { start: "2026-08-30T02:00:00Z", end: "2026-08-30T05:00:00Z" },
+          prediction_horizon: { start: "2026-08-30T08:00:00Z", end: "2026-08-30T11:00:00Z" },
           rain_probability: 0.2,
           predicted_class: "no_rain",
           risk_level: "low",
