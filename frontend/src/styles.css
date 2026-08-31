@@ -316,8 +316,10 @@ dd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton {
+  .skeleton,
+  .history-chart * {
     animation: none;
+    transition: none;
   }
 }
 

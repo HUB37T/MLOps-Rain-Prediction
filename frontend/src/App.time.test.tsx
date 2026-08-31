@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -172,6 +172,136 @@ describe("authoritative session time", () => {
     });
     expect(screen.getByText("Prediksi untuk periode saat ini belum tersedia.")).toBeVisible();
     expect(screen.queryByText("49,9%")).not.toBeInTheDocument();
+  });
+
+  it("re-verifies the prediction after returning from a hidden tab", async () => {
+    vi.useFakeTimers();
+    let monotonicTime = 0;
+    let predictionCalls = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicTime);
+    const refreshedPrediction = {
+      ...predictionResponse,
+      prediction: {
+        ...predictionResponse.prediction,
+        rain_probability: 0.6,
+        predicted_class: "rain",
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/weather/current")) return Promise.resolve(response(weatherResponse));
+        if (path.includes("/history")) return Promise.resolve(response(historyResponse));
+        predictionCalls += 1;
+        return Promise.resolve(response(predictionCalls === 1 ? predictionResponse : refreshedPrediction));
+      }),
+    );
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText("49,9%")).toBeVisible();
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+
+    expect(predictionCalls).toBe(2);
+    expect(screen.getByText("60,0%")).toBeVisible();
+  });
+
+  it("rejects a regressing server time during a retry", async () => {
+    let predictionCalls = 0;
+    let weatherCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/weather/current")) {
+          weatherCalls += 1;
+          return weatherCalls === 1
+            ? Promise.reject(new Error("weather failure"))
+            : Promise.resolve(response(weatherResponse));
+        }
+        if (path.includes("/history")) return Promise.resolve(response(historyResponse));
+        predictionCalls += 1;
+        return Promise.resolve(
+          response(
+            predictionCalls === 1
+              ? predictionResponse
+              : { ...predictionResponse, server_time: "2026-08-30T06:00:00Z" },
+          ),
+        );
+      }),
+    );
+
+    render(<App />);
+    const retry = await screen.findByRole("button", { name: "Coba lagi" });
+    fireEvent.click(retry);
+
+    expect(
+      await screen.findByText("Status waktu tidak dapat diverifikasi. Prediksi saat ini tidak tersedia."),
+    ).toBeVisible();
+    expect(screen.getByText("49,9%")).toBeVisible();
+  });
+
+  it("rejects a server time that is too far in the future", async () => {
+    const futurePrediction = {
+      ...predictionResponse,
+      server_time: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        return Promise.resolve(
+          response(path.includes("/weather/current") ? weatherResponse : path.includes("/history") ? historyResponse : futurePrediction),
+        );
+      }),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("Status waktu tidak dapat diverifikasi. Prediksi saat ini tidak tersedia."),
+    ).toBeVisible();
+  });
+
+  it("re-verifies after monotonic time continuity is lost", async () => {
+    vi.useFakeTimers();
+    let monotonicTime = 0;
+    let predictionCalls = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicTime);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/weather/current")) return Promise.resolve(response(weatherResponse));
+        if (path.includes("/history")) return Promise.resolve(response(historyResponse));
+        predictionCalls += 1;
+        return Promise.resolve(response(predictionResponse));
+      }),
+    );
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(predictionCalls).toBe(1);
+
+    monotonicTime = -1;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(predictionCalls).toBe(2);
+    expect(screen.getByText("49,9%")).toBeVisible();
   });
 
   it("refreshes once after expiration and renders the newer prediction", async () => {

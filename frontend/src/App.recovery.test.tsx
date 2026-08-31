@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -105,5 +105,75 @@ describe("error recovery", () => {
 
     releaseRetry?.();
     expect(await screen.findByText("49,9%")).toBeVisible();
+  });
+
+  it("renders completed resources while a slower resource is still loading", async () => {
+    let releaseWeather: ((value: Response) => void) | undefined;
+    const weatherRequest = new Promise<Response>((resolve) => {
+      releaseWeather = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/weather/current")) return weatherRequest;
+        if (path.includes("/history")) return Promise.resolve(response(historyResponse));
+        return Promise.resolve(response(predictionResponse));
+      }),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("49,9%")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Memuat cuaca" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Riwayat prediksi 24 jam" })).toBeVisible();
+
+    await act(async () => {
+      releaseWeather?.(response(weatherResponse));
+    });
+    expect(await screen.findByRole("heading", { name: "Cuaca saat ini" })).toBeVisible();
+  });
+
+  it("keeps a newer prediction when an older response arrives late", async () => {
+    let releaseInitialPrediction: ((value: Response) => void) | undefined;
+    let predictionAttempts = 0;
+    let weatherAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/weather/current")) {
+          weatherAttempts += 1;
+          return weatherAttempts === 1
+            ? Promise.reject(new Error("weather failure"))
+            : Promise.resolve(response(weatherResponse));
+        }
+        if (path.includes("/history")) return Promise.resolve(response(historyResponse));
+        predictionAttempts += 1;
+        if (predictionAttempts === 1) {
+          return new Promise((resolve) => {
+            releaseInitialPrediction = resolve;
+          });
+        }
+        return Promise.resolve(
+          response({
+            ...predictionResponse,
+            prediction: { ...predictionResponse.prediction, rain_probability: 0.6, predicted_class: "rain" },
+          }),
+        );
+      }),
+    );
+
+    render(<App />);
+    const retry = await screen.findByRole("button", { name: "Coba lagi" });
+    fireEvent.click(retry);
+    expect(await screen.findByText("60,0%")).toBeVisible();
+
+    await act(async () => {
+      releaseInitialPrediction?.(response(predictionResponse));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("49,9%")).not.toBeInTheDocument();
+    expect(screen.getByText("60,0%")).toBeVisible();
   });
 });

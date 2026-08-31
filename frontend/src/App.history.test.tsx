@@ -72,6 +72,8 @@ describe("prediction history", () => {
 
     expect(await screen.findByRole("heading", { name: "Riwayat prediksi 24 jam" })).toBeVisible();
     expect(screen.getByRole("table")).toBeVisible();
+    expect(screen.getAllByRole("row")).toHaveLength(25);
+    expect(screen.getByRole("table").parentElement).toHaveClass("history-table-wrapper");
     expect(screen.getByText("Berhasil diterbitkan")).toBeVisible();
     expect(screen.getByText("Menunggu penerbitan")).toBeVisible();
     expect(screen.getByText("78,4%")).toBeVisible();

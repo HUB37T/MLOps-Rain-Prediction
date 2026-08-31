@@ -80,16 +80,30 @@ type SessionClock = {
   serverTimeMs: number | null;
   monotonicTimeMs: number | null;
   greatestServerTimeMs: number | null;
+  lastObservedMonotonicTimeMs: number | null;
+  continuityLost: boolean;
 };
 
 const SESSION_TIME_TOLERANCE_MS = 5_000;
+const MAX_SERVER_TIME_FUTURE_MS = 5 * 60 * 1_000;
 
 function verifyServerTime(value: unknown, clock: SessionClock): boolean {
   if (typeof value !== "string") return false;
   const serverTimeMs = Date.parse(value);
   if (!Number.isFinite(serverTimeMs)) return false;
+  if (serverTimeMs > Date.now() + MAX_SERVER_TIME_FUTURE_MS) return false;
+  if (clock.continuityLost) return false;
 
   const monotonicTimeMs = performance.now();
+  if (
+    clock.lastObservedMonotonicTimeMs !== null
+    && monotonicTimeMs < clock.lastObservedMonotonicTimeMs
+  ) {
+    clock.continuityLost = true;
+    clock.lastObservedMonotonicTimeMs = monotonicTimeMs;
+    return false;
+  }
+  clock.lastObservedMonotonicTimeMs = monotonicTimeMs;
   if (clock.serverTimeMs === null || clock.monotonicTimeMs === null) {
     clock.serverTimeMs = serverTimeMs;
     clock.monotonicTimeMs = monotonicTimeMs;
@@ -116,7 +130,27 @@ function verifyServerTime(value: unknown, clock: SessionClock): boolean {
 
 function sessionTimeMs(clock: SessionClock): number | null {
   if (clock.serverTimeMs === null || clock.monotonicTimeMs === null) return null;
-  return clock.serverTimeMs + Math.max(0, performance.now() - clock.monotonicTimeMs);
+  const monotonicTimeMs = performance.now();
+  if (
+    clock.lastObservedMonotonicTimeMs !== null
+    && monotonicTimeMs < clock.lastObservedMonotonicTimeMs
+  ) {
+    clock.continuityLost = true;
+    clock.lastObservedMonotonicTimeMs = monotonicTimeMs;
+    return null;
+  }
+  clock.lastObservedMonotonicTimeMs = monotonicTimeMs;
+  return clock.serverTimeMs + Math.max(0, monotonicTimeMs - clock.monotonicTimeMs);
+}
+
+function emptySessionClock(): SessionClock {
+  return {
+    serverTimeMs: null,
+    monotonicTimeMs: null,
+    greatestServerTimeMs: null,
+    lastObservedMonotonicTimeMs: null,
+    continuityLost: false,
+  };
 }
 
 function resolveSessionPrediction(response: PredictionResponse, nowMs: number): PredictionResponse {
@@ -348,6 +382,7 @@ function PredictionHistory({ history }: { history: HistoryResponse }) {
               stroke="#f6c66e"
               strokeWidth={3}
               dot={false}
+              isAnimationActive={false}
               connectNulls={false}
             />
             <Line
@@ -357,6 +392,7 @@ function PredictionHistory({ history }: { history: HistoryResponse }) {
               stroke="#9eb4ad"
               strokeWidth={2}
               dot={false}
+              isAnimationActive={false}
               connectNulls={false}
             />
           </LineChart>
@@ -431,7 +467,9 @@ export function App() {
   const [response, setResponse] = useState<PredictionResponse | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [predictionLoading, setPredictionLoading] = useState(true);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [weatherError, setWeatherError] = useState(false);
   const [historyError, setHistoryError] = useState(false);
@@ -442,9 +480,12 @@ export function App() {
     serverTimeMs: null,
     monotonicTimeMs: null,
     greatestServerTimeMs: null,
+    lastObservedMonotonicTimeMs: null,
+    continuityLost: false,
   });
   const predictionRequestId = useRef(0);
   const expirationRefreshKeyRef = useRef<string | null>(null);
+  const wasHiddenRef = useRef(document.visibilityState === "hidden");
   const weatherRequestId = useRef(0);
   const historyRequestId = useRef(0);
 
@@ -464,6 +505,11 @@ export function App() {
       .catch((error: unknown) => {
         if (mountedRef.current && requestId === predictionRequestId.current) {
           setPredictionError(error instanceof ApiRequestError ? error.code : "backend_unavailable");
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current && requestId === predictionRequestId.current) {
+          setPredictionLoading(false);
         }
       });
   };
@@ -485,6 +531,11 @@ export function App() {
         if (mountedRef.current && requestId === weatherRequestId.current) {
           setWeatherError(true);
         }
+      })
+      .finally(() => {
+        if (mountedRef.current && requestId === weatherRequestId.current) {
+          setWeatherLoading(false);
+        }
       });
   };
 
@@ -495,9 +546,9 @@ export function App() {
         if (!verifyServerTime(data.server_time, sessionClockRef.current)) {
           throw new ApiRequestError("unverified_time");
         }
-         if (data.slot_count !== 24 || !Array.isArray(data.slots) || data.slots.length !== 24) {
-           throw new ApiRequestError("history_unavailable");
-         }
+        if (data.slot_count !== 24 || !Array.isArray(data.slots) || data.slots.length !== 24) {
+          throw new ApiRequestError("history_unavailable");
+        }
         if (mountedRef.current && requestId === historyRequestId.current) {
           setHistory(data);
           setHistoryError(false);
@@ -507,6 +558,11 @@ export function App() {
       .catch(() => {
         if (mountedRef.current && requestId === historyRequestId.current) {
           setHistoryError(true);
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current && requestId === historyRequestId.current) {
+          setHistoryLoading(false);
         }
       });
   };
@@ -526,12 +582,7 @@ export function App() {
     const predictionRequest = loadPrediction();
     const weatherRequest = loadWeather();
     const historyRequest = loadHistory();
-
-    Promise.allSettled([predictionRequest, weatherRequest, historyRequest]).then(() => {
-      if (mountedRef.current) {
-        setIsLoading(false);
-      }
-    });
+    void Promise.allSettled([predictionRequest, weatherRequest, historyRequest]);
 
     return () => {
       mountedRef.current = false;
@@ -548,6 +599,36 @@ export function App() {
     const interval = window.setInterval(updateSessionTime, 1_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        wasHiddenRef.current = true;
+        return;
+      }
+      if (!wasHiddenRef.current || sessionClockRef.current.serverTimeMs === null) return;
+
+      wasHiddenRef.current = false;
+      sessionClockRef.current = emptySessionClock();
+      expirationRefreshKeyRef.current = null;
+      setSessionNowMs(null);
+      setPredictionLoading(true);
+      void loadPrediction();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (!sessionClockRef.current.continuityLost) return;
+
+    sessionClockRef.current = emptySessionClock();
+    expirationRefreshKeyRef.current = null;
+    setSessionNowMs(null);
+    setPredictionLoading(true);
+    void loadPrediction();
+  }, [sessionNowMs]);
 
   useEffect(() => {
     if (
@@ -572,27 +653,20 @@ export function App() {
     void loadPrediction();
   }, [response, sessionNowMs]);
 
-  if (isLoading) {
-    return (
-      <main className="page-shell" aria-busy="true">
-        <div className="skeleton" aria-label="Memuat prediksi" />
-      </main>
-    );
-  }
-
   const displayResponse = response && sessionNowMs !== null
     ? resolveSessionPrediction(response, sessionNowMs)
-    : response;
+    : null;
   const prediction = displayResponse?.prediction ?? null;
   const statusMessage = displayResponse && displayResponse.status !== "available"
     ? predictionStatusMessages[displayResponse.status]
     : null;
   const hasRecoverableError = predictionError !== null || weatherError || historyError;
   const hasPredictionExpiry = displayResponse?.status === "unavailable" || displayResponse?.status === "invalid";
+  const hasPredictionTimeError = predictionError !== null && sessionNowMs === null;
   const fallbackWarning = displayResponse?.warnings.find((warning) => warning.code === "prediction_fallback");
   const staleWarning = displayResponse?.warnings.find((warning) => warning.code === "prediction_stale");
   const hasVisiblePoliteAnnouncement = Boolean(
-    (predictionError && response)
+    (predictionError && response && sessionNowMs !== null)
       || fallbackWarning
       || staleWarning
       || weather?.status === "partial"
@@ -625,13 +699,18 @@ export function App() {
         </p>
       </header>
 
-      <section className="prediction-card" aria-labelledby="prediction-title">
-        <div className="location-row">
-          <span>Lokasi utama</span>
-          <strong>{displayResponse?.primary_location.name ?? "FILKOM Universitas Brawijaya"}</strong>
-        </div>
+      {predictionLoading ? (
+        <section className="prediction-card" aria-busy="true" aria-label="Memuat prediksi">
+          <div className="skeleton" aria-hidden="true" />
+        </section>
+      ) : (
+        <section className="prediction-card" aria-labelledby="prediction-title">
+          <div className="location-row">
+            <span>Lokasi utama</span>
+            <strong>{displayResponse?.primary_location.name ?? "FILKOM Universitas Brawijaya"}</strong>
+          </div>
 
-        {predictionError && response ? (
+        {predictionError && response && sessionNowMs !== null ? (
           <p className="prediction-warning" role="status" aria-live="polite">
             {predictionErrorMessage(predictionError, true)}
           </p>
@@ -710,8 +789,8 @@ export function App() {
           <p
             className="prediction-status"
             id="prediction-title"
-            role={hasPredictionExpiry || (!response && predictionError) ? "alert" : undefined}
-            aria-live={hasPredictionExpiry || (!response && predictionError) ? "assertive" : "polite"}
+            role={hasPredictionExpiry || (!response && predictionError) || hasPredictionTimeError ? "alert" : undefined}
+            aria-live={hasPredictionExpiry || (!response && predictionError) || hasPredictionTimeError ? "assertive" : "polite"}
           >
             {statusMessage ??
               (predictionError
@@ -719,9 +798,14 @@ export function App() {
                 : "Prediksi untuk periode saat ini belum tersedia.")}
           </p>
         )}
-      </section>
+        </section>
+      )}
 
-      {weather ? (
+      {weatherLoading ? (
+        <section className="weather-card" aria-busy="true" aria-label="Memuat cuaca">
+          <div className="skeleton" aria-hidden="true" />
+        </section>
+      ) : weather ? (
         <section className="weather-card" aria-labelledby="weather-title">
           <div className="section-heading">
             <div>
@@ -797,7 +881,11 @@ export function App() {
         </section>
       ) : null}
 
-      {history ? (
+      {historyLoading ? (
+        <section className="history-card" aria-busy="true" aria-label="Memuat riwayat prediksi">
+          <div className="skeleton" aria-hidden="true" />
+        </section>
+      ) : history ? (
         <PredictionHistory history={history} />
       ) : historyError ? (
         <section className="history-card" aria-labelledby="history-title">
