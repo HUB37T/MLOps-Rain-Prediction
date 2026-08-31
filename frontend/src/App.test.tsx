@@ -116,8 +116,13 @@ describe("primary Rain Prediction card", () => {
 
     expect(await screen.findByText("Peluang hujan dalam 3 jam ke depan")).toBeVisible();
     expect(screen.getByText("49,9%")).toBeVisible();
+    expect(screen.getByText("Mendekati ambang keputusan")).toBeVisible();
+    expect(screen.getByText("Hujan berarti akumulasi minimal 0,1 mm dalam tiga jam ke depan.")).toBeVisible();
     expect(screen.getByText("Prediksi model")).toBeVisible();
     expect(screen.getByText("Tidak hujan")).toBeVisible();
+    expect(
+      screen.getByText("Prediksi model memakai ambang keputusan; Tingkat persiapan mengikuti rentang peluang hujan."),
+    ).toBeVisible();
     expect(screen.getByText("Tingkat persiapan").parentElement).toHaveTextContent("Sedang");
     expect(
       screen.getByText("Bawa perlindungan hujan dan periksa kesiapan lokasi cadangan."),
@@ -130,6 +135,9 @@ describe("primary Rain Prediction card", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Cuaca saat ini" })).toBeVisible();
+    expect(
+      screen.getByText("Kondisi terbaru adalah data cuaca saat ini, bukan prediksi untuk tiga jam ke depan."),
+    ).toBeVisible();
     expect(screen.getByText("27,3 °C")).toBeVisible();
     expect(screen.getByText("82,0%")).toBeVisible();
     expect(screen.getByText("Curah hujan 1 jam terakhir (mm)")).toBeVisible();

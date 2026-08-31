@@ -103,6 +103,73 @@ describe("authoritative session time", () => {
     expect(screen.queryByText("Peluang hujan dalam 3 jam ke depan")).not.toBeInTheDocument();
   });
 
+  it("applies the two-hour freshness boundary without truncating fractions", async () => {
+    vi.useFakeTimers();
+    let monotonicTime = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicTime);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        return Promise.resolve(
+          response(path.includes("/weather/current") ? weatherResponse : path.includes("/history") ? historyResponse : predictionResponse),
+        );
+      }),
+    );
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    monotonicTime = 2 * 60 * 60 * 1000;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.queryByText("Data belum diperbarui—jangan gunakan sebagai satu-satunya dasar keputusan.")).not.toBeInTheDocument();
+
+    monotonicTime += 1;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText("Data belum diperbarui—jangan gunakan sebagai satu-satunya dasar keputusan.")).toBeVisible();
+  });
+
+  it("removes a prediction immediately after six hours of freshness", async () => {
+    vi.useFakeTimers();
+    let monotonicTime = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicTime);
+    const oldFeatureResponse = {
+      ...predictionResponse,
+      prediction: {
+        ...predictionResponse.prediction,
+        feature_timestamp: "2026-08-30T01:00:00Z",
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        return Promise.resolve(
+          response(path.includes("/weather/current") ? weatherResponse : path.includes("/history") ? historyResponse : oldFeatureResponse),
+        );
+      }),
+    );
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText("49,9%")).toBeVisible();
+
+    monotonicTime = 1;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText("Prediksi untuk periode saat ini belum tersedia.")).toBeVisible();
+    expect(screen.queryByText("49,9%")).not.toBeInTheDocument();
+  });
+
   it("refreshes once after expiration and renders the newer prediction", async () => {
     vi.useFakeTimers();
     let monotonicTime = 0;
@@ -179,7 +246,7 @@ describe("authoritative session time", () => {
 
     expect(predictionCalls).toBe(2);
     expect(screen.getByText("Prediksi untuk periode saat ini belum tersedia.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Coba lagi" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Coba lagi" })).not.toBeInTheDocument();
     expect(screen.queryByText("Peluang hujan dalam 3 jam ke depan")).not.toBeInTheDocument();
 
     await act(async () => {

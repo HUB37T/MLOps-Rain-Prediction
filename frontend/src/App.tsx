@@ -17,6 +17,7 @@ type PredictionResponse = {
     prediction_horizon: { start: string; end: string };
     rain_probability: number;
     predicted_class: "rain" | "no_rain";
+    near_threshold: boolean;
     risk_level: "low" | "moderate" | "high";
     preparation_action: string;
     decision_threshold: number;
@@ -138,7 +139,7 @@ function resolveSessionPrediction(response: PredictionResponse, nowMs: number): 
     };
   }
 
-  const dataFreshnessSeconds = Math.max(0, Math.floor((nowMs - featureTimeMs) / 1_000));
+  const dataFreshnessSeconds = Math.max(0, (nowMs - featureTimeMs) / 1_000);
   if (nowMs >= horizonEndMs || dataFreshnessSeconds > 6 * 60 * 60) {
     return {
       ...response,
@@ -637,7 +638,16 @@ export function App() {
                 Peluang hujan dalam 3 jam ke depan
               </p>
               <strong className="probability">{formatPercentage(prediction.rain_probability)}</strong>
+              <p className="supporting-copy">
+                Hujan berarti akumulasi minimal 0,1 mm dalam tiga jam ke depan.
+              </p>
             </div>
+
+            {prediction.near_threshold ? (
+              <p className="prediction-warning" role="status" aria-live="polite">
+                Mendekati ambang keputusan
+              </p>
+            ) : null}
 
             <div className="decision-grid">
               <div>
@@ -649,6 +659,10 @@ export function App() {
                 <p className="value">{riskLabels[prediction.risk_level]}</p>
               </div>
             </div>
+
+            <p className="supporting-copy">
+              Prediksi model memakai ambang keputusan; Tingkat persiapan mengikuti rentang peluang hujan.
+            </p>
 
             <div className="preparation">
               <p className="label">Panduan persiapan</p>
@@ -706,6 +720,9 @@ export function App() {
               </p>
             ) : null}
           </div>
+          <p className="supporting-copy">
+            Kondisi terbaru adalah data cuaca saat ini, bukan prediksi untuk tiga jam ke depan.
+          </p>
 
           {weather.warnings.map((warning) => (
             <p className="weather-warning" key={warning.code} role="status" aria-live="polite">
@@ -763,7 +780,7 @@ export function App() {
         </section>
       ) : null}
 
-      {hasRecoverableError ? (
+      {hasRecoverableError && !hasPredictionExpiry ? (
         <button className="retry-button" type="button" onClick={retry} disabled={isRetrying}>
           {isRetrying ? "Mencoba kembali..." : "Coba lagi"}
         </button>

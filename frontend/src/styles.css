@@ -107,9 +107,16 @@ h2 {
 .weather-warning,
 .prediction-warning,
 .prediction-status,
+.supporting-copy,
 .attribution {
   color: #d4cdbd;
   line-height: 1.5;
+}
+
+.supporting-copy {
+  margin: 0.75rem 0 0;
+  color: #9eb4ad;
+  font-size: 0.9rem;
 }
 
 .timestamp {
