@@ -141,6 +141,64 @@ def resolve_current_prediction(
     return response
 
 
+def resolve_prediction_history(
+    repository: PredictionRepository,
+    server_time: datetime,
+    slots: int = 24,
+) -> dict[str, object]:
+    server_time = server_time.astimezone(UTC)
+    scheduled_time = server_time.replace(minute=0, second=0, microsecond=0)
+    first_slot = scheduled_time - timedelta(hours=slots - 1)
+    records_by_slot: dict[datetime, list[dict[str, object]]] = {}
+    for record in repository.list_records():
+        official_time = _record_official_time(record)
+        if official_time is not None and first_slot <= official_time <= scheduled_time:
+            records_by_slot.setdefault(official_time, []).append(record)
+
+    history_slots: list[dict[str, object]] = []
+    for offset in range(slots):
+        official_time = scheduled_time - timedelta(hours=offset)
+        matching_records = records_by_slot.get(official_time, [])
+        issued_record = next(
+            (
+                record
+                for record in matching_records
+                if _valid_record(record, server_time, require_current_window=False)
+            ),
+            None,
+        )
+        if issued_record is not None:
+            history_slots.append(
+                {
+                    "official_prediction_time": _utc_timestamp(official_time),
+                    "status": "issued",
+                    "prediction": _prediction_payload(issued_record, server_time),
+                }
+            )
+        elif official_time == scheduled_time and server_time < scheduled_time + timedelta(minutes=10):
+            history_slots.append(
+                {
+                    "official_prediction_time": _utc_timestamp(official_time),
+                    "status": "pending",
+                    "prediction": None,
+                }
+            )
+        else:
+            history_slots.append(
+                {
+                    "official_prediction_time": _utc_timestamp(official_time),
+                    "status": "failed" if matching_records else "unavailable",
+                    "prediction": None,
+                }
+            )
+
+    return {
+        "server_time": _utc_timestamp(server_time),
+        "slot_count": slots,
+        "slots": history_slots,
+    }
+
+
 def _prediction_payload(record: dict[str, object], server_time: datetime) -> dict[str, object]:
     feature_timestamp = _datetime(record["feature_timestamp"])
     assert feature_timestamp is not None
@@ -160,7 +218,12 @@ def _prediction_payload(record: dict[str, object], server_time: datetime) -> dic
     return payload
 
 
-def _valid_record(record: dict[str, object], server_time: datetime) -> bool:
+def _valid_record(
+    record: dict[str, object],
+    server_time: datetime,
+    *,
+    require_current_window: bool = True,
+) -> bool:
     official_time = _record_official_time(record)
     actual_time = _datetime(record.get("actual_generation_time"))
     feature_time = _datetime(record.get("feature_timestamp"))
@@ -179,11 +242,13 @@ def _valid_record(record: dict[str, object], server_time: datetime) -> bool:
         return False
     if actual_time > server_time or feature_time > official_time:
         return False
-    if server_time - feature_time > timedelta(hours=6):
+    if require_current_window and server_time - feature_time > timedelta(hours=6):
         return False
     if horizon_start != official_time + timedelta(hours=1):
         return False
-    if horizon_end != official_time + timedelta(hours=4) or server_time >= horizon_end:
+    if horizon_end != official_time + timedelta(hours=4):
+        return False
+    if require_current_window and server_time >= horizon_end:
         return False
 
     probability = record.get("rain_probability")

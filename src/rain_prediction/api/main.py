@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Protocol
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 
 from rain_prediction.inference.lifecycle import (
     MockPredictionRepository,
     PredictionRepository,
     resolve_current_prediction,
+    resolve_prediction_history,
 )
 from rain_prediction.ingestion.weather import (
     OpenMeteoWeatherProvider,
@@ -59,6 +60,10 @@ def create_app(
     @app.get("/api/v1/predictions/current")
     def get_current_prediction() -> dict[str, object]:
         return resolve_current_prediction(current_prediction_repository, current_clock.now())
+
+    @app.get("/api/v1/predictions/history")
+    def get_prediction_history(slots: int = Query(default=24, ge=24, le=24)) -> dict[str, object]:
+        return resolve_prediction_history(current_prediction_repository, current_clock.now(), slots)
 
     @app.get("/api/v1/weather/current")
     def get_current_weather() -> dict[str, object]:

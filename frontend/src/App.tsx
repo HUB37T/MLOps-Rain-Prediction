@@ -1,4 +1,13 @@
 import { useEffect, useState } from "react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type PredictionResponse = {
   server_time: string;
@@ -33,6 +42,29 @@ type WeatherResponse = {
   variables: Record<string, WeatherVariable>;
   warnings: { code: string; message: string }[];
   provider?: { attribution: string };
+};
+
+type HistoryPrediction = {
+  prediction_horizon: { start: string; end: string };
+  rain_probability: number;
+  predicted_class: "rain" | "no_rain";
+  risk_level: "low" | "moderate" | "high";
+  decision_threshold: number;
+  feature_timestamp: string;
+  data_freshness_seconds: number;
+  freshness_status: "fresh" | "stale" | "unavailable";
+};
+
+type HistorySlot = {
+  official_prediction_time: string;
+  status: "pending" | "issued" | "failed" | "unavailable";
+  prediction: HistoryPrediction | null;
+};
+
+type HistoryResponse = {
+  server_time: string;
+  slot_count: number;
+  slots: HistorySlot[];
 };
 
 const classLabels = {
@@ -134,9 +166,121 @@ const predictionStatusMessages: Record<Exclude<PredictionResponse["status"], "av
   invalid: "Prediksi saat ini tidak tersedia karena hasilnya tidak dapat diverifikasi.",
 };
 
+const historyStatusLabels: Record<HistorySlot["status"], string> = {
+  pending: "Menunggu penerbitan",
+  issued: "Berhasil diterbitkan",
+  failed: "Penerbitan prediksi gagal",
+  unavailable: "Prediksi tidak tersedia",
+};
+
+function PredictionHistory({ history }: { history: HistoryResponse }) {
+  const issuedSlots = history.slots.filter(
+    (slot): slot is HistorySlot & { prediction: HistoryPrediction } =>
+      slot.status === "issued" && slot.prediction !== null,
+  );
+  const highest = issuedSlots.reduce<HistorySlot & { prediction: HistoryPrediction } | null>(
+    (current, slot) =>
+      current === null || slot.prediction.rain_probability > current.prediction.rain_probability
+        ? slot
+        : current,
+    null,
+  );
+  const chartData = history.slots.map((slot) => ({
+    time: formatWibTime(slot.official_prediction_time),
+    rainProbability: slot.prediction?.rain_probability ?? null,
+    decisionThreshold: slot.prediction?.decision_threshold ?? null,
+  }));
+
+  return (
+    <section className="history-card" aria-labelledby="history-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Riwayat</p>
+          <h2 id="history-title">Riwayat prediksi 24 jam</h2>
+        </div>
+      </div>
+
+      <p className="history-summary" role="status">
+        {highest
+          ? `Peluang hujan tertinggi dalam 24 jam terakhir adalah ${formatPercentage(highest.prediction.rain_probability)} pada pukul ${formatWibTime(highest.official_prediction_time)} WIB.`
+          : "Tidak ada prediksi yang berhasil diterbitkan dalam 24 jam terakhir."}
+      </p>
+
+      {issuedSlots.length === 0 ? (
+        <p className="history-empty">Belum ada prediksi yang berhasil diterbitkan dalam 24 slot terakhir.</p>
+      ) : null}
+
+      <div className="history-chart" role="img" aria-label="Grafik peluang hujan dan ambang keputusan">
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={chartData} margin={{ top: 12, right: 12, bottom: 8, left: 12 }}>
+            <CartesianGrid stroke="#38514e" strokeDasharray="3 3" />
+            <XAxis dataKey="time" minTickGap={24} />
+            <YAxis domain={[0, 1]} tickFormatter={formatPercentage} />
+            <Tooltip />
+            <Line
+              type="monotone"
+              dataKey="rainProbability"
+              name="Peluang hujan"
+              stroke="#f6c66e"
+              strokeWidth={3}
+              dot={false}
+              connectNulls={false}
+            />
+            <Line
+              type="stepAfter"
+              dataKey="decisionThreshold"
+              name="Ambang keputusan yang digunakan"
+              stroke="#9eb4ad"
+              strokeWidth={2}
+              dot={false}
+              connectNulls={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="history-table-wrapper">
+        <table>
+          <caption>Tabel riwayat prediksi per slot</caption>
+          <thead>
+            <tr>
+              <th scope="col">Waktu resmi</th>
+              <th scope="col">Status</th>
+              <th scope="col">Horizon</th>
+              <th scope="col">Peluang hujan</th>
+              <th scope="col">Prediksi model</th>
+              <th scope="col">Tingkat persiapan</th>
+              <th scope="col">Ambang</th>
+              <th scope="col">Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.slots.map((slot) => {
+              const prediction = slot.prediction;
+              return (
+                <tr key={slot.official_prediction_time}>
+                  <th scope="row">{formatWibTime(slot.official_prediction_time)} WIB</th>
+                  <td>{historyStatusLabels[slot.status]}</td>
+                  <td>{prediction ? formatHorizon(prediction.prediction_horizon.start, prediction.prediction_horizon.end) : "-"}</td>
+                  <td>{prediction ? formatPercentage(prediction.rain_probability) : "-"}</td>
+                  <td>{prediction ? classLabels[prediction.predicted_class] : "-"}</td>
+                  <td>{prediction ? riskLabels[prediction.risk_level] : "-"}</td>
+                  <td>{prediction ? formatPercentage(prediction.decision_threshold) : "-"}</td>
+                  <td>{prediction ? formatFreshness(prediction.data_freshness_seconds) : "-"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export function App() {
   const [response, setResponse] = useState<PredictionResponse | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
+  const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
@@ -181,7 +325,25 @@ export function App() {
         }
       });
 
-    Promise.allSettled([predictionRequest, weatherRequest]).then(() => {
+    const historyRequest = fetch("/api/v1/predictions/history?slots=24")
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error("history request failed");
+        }
+        return result.json() as Promise<HistoryResponse>;
+      })
+      .then((data) => {
+        if (isCurrent && Array.isArray(data.slots)) {
+          setHistory(data);
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setHistory(null);
+        }
+      });
+
+    Promise.allSettled([predictionRequest, weatherRequest, historyRequest]).then(() => {
       if (isCurrent) {
         setIsLoading(false);
       }
@@ -335,6 +497,8 @@ export function App() {
           {weather.provider ? <p className="attribution">{weather.provider.attribution}</p> : null}
         </section>
       ) : null}
+
+      {history ? <PredictionHistory history={history} /> : null}
     </main>
   );
 }

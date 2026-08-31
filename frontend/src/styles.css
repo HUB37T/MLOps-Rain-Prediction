@@ -64,6 +64,14 @@ h1 {
   padding: clamp(1.25rem, 5vw, 2rem);
 }
 
+.history-card {
+  margin-top: 1rem;
+  border: 1px solid #38514e;
+  border-radius: 1.25rem;
+  background: #152224;
+  padding: clamp(1.25rem, 5vw, 2rem);
+}
+
 .section-heading {
   display: flex;
   align-items: flex-start;
@@ -106,6 +114,52 @@ h2 {
 .prediction-status {
   padding: 2rem 0;
   font-size: 1.15rem;
+}
+
+.history-summary,
+.history-empty {
+  color: #d4cdbd;
+  line-height: 1.5;
+}
+
+.history-empty {
+  border-left: 3px solid #9eb4ad;
+  padding-left: 1rem;
+}
+
+.history-chart {
+  height: 280px;
+  margin: 1.5rem 0;
+}
+
+.history-table-wrapper {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  color: #e5dfd1;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+caption {
+  margin-bottom: 0.75rem;
+  color: #9eb4ad;
+  text-align: left;
+}
+
+th,
+td {
+  border-bottom: 1px solid #38514e;
+  padding: 0.75rem 0.5rem;
+  white-space: nowrap;
+}
+
+tbody th {
+  color: #e5dfd1;
+  font-weight: 400;
 }
 
 .weather-grid {
