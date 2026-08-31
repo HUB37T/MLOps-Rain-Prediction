@@ -56,6 +56,63 @@ h1 {
   padding: clamp(1.25rem, 5vw, 2rem);
 }
 
+.weather-card {
+  margin-top: 1rem;
+  border: 1px solid #38514e;
+  border-radius: 1.25rem;
+  background: #152224;
+  padding: clamp(1.25rem, 5vw, 2rem);
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #38514e;
+  padding-bottom: 1rem;
+}
+
+h2 {
+  margin: 0.25rem 0 0;
+  font-size: 2rem;
+  letter-spacing: -0.04em;
+}
+
+.timestamp,
+.weather-warning,
+.attribution {
+  color: #d4cdbd;
+  line-height: 1.5;
+}
+
+.timestamp {
+  margin: 0;
+  text-align: right;
+}
+
+.weather-warning {
+  border-left: 3px solid #f6c66e;
+  padding-left: 1rem;
+}
+
+.weather-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem 1rem;
+  margin: 1.5rem 0;
+}
+
+.stale-indicator {
+  color: #f6c66e;
+  font-size: 0.85rem;
+}
+
+.attribution {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
 .location-row,
 .decision-grid,
 .metadata {
@@ -157,5 +214,19 @@ dd {
 
   .metadata {
     grid-template-columns: 1fr;
+  }
+
+  .section-heading,
+  .weather-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading {
+    display: block;
+  }
+
+  .timestamp {
+    margin-top: 0.75rem;
+    text-align: left;
   }
 }

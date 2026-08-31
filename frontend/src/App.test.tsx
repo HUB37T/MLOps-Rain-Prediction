@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 
@@ -46,16 +46,68 @@ const currentPredictionResponse = {
   warnings: [],
 };
 
+type WeatherResponseFixture = {
+  server_time: string;
+  primary_location: { id: string; name: string };
+  status: "complete" | "partial" | "unavailable";
+  current_weather_timestamp: string;
+  variables: Record<
+    string,
+    {
+      value: number | null;
+      unit: string;
+      timestamp: string;
+      freshness_status: string;
+      status: string;
+    }
+  >;
+  warnings: { code: string; message: string }[];
+  provider: { name: string; attribution: string };
+};
+
+const currentWeatherResponse: WeatherResponseFixture = {
+  server_time: "2026-08-30T07:05:00Z",
+  primary_location: {
+    id: "filkom-ub",
+    name: "FILKOM Universitas Brawijaya",
+  },
+  status: "complete",
+  current_weather_timestamp: "2026-08-30T07:00:00Z",
+  variables: {
+    temperature_2m: { value: 27.3, unit: "degC", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+    relative_humidity_2m: { value: 82, unit: "percent", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+    precipitation_1h: { value: 0.2, unit: "mm", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+    cloud_cover: { value: 75, unit: "percent", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+    wind_speed_10m: { value: 12, unit: "kmh", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+    wind_direction_10m: { value: 90, unit: "degree", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+    sea_level_pressure: { value: 1008, unit: "hPa", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+  },
+  warnings: [],
+  provider: { name: "Open-Meteo", attribution: "Data cuaca disediakan oleh Open-Meteo." },
+};
+
+let weatherResponse = currentWeatherResponse;
+
 describe("primary Rain Prediction card", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
+    weatherResponse = currentWeatherResponse;
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(currentPredictionResponse), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
+      vi.fn((input: RequestInfo | URL) => {
+        const body = String(input).includes("/weather/current")
+          ? weatherResponse
+          : currentPredictionResponse;
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }),
     );
   });
 
@@ -72,5 +124,62 @@ describe("primary Rain Prediction card", () => {
     ).toBeVisible();
     expect(screen.getByText("15:00-18:00 WIB")).toBeVisible();
     expect(screen.getByText("Model: baseline-v1")).toBeVisible();
+  });
+
+  it("renders the complete Current Weather section from its HTTP contract", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Cuaca saat ini" })).toBeVisible();
+    expect(screen.getByText("27,3 °C")).toBeVisible();
+    expect(screen.getByText("82,0%")).toBeVisible();
+    expect(screen.getByText("Curah hujan 1 jam terakhir (mm)")).toBeVisible();
+    expect(screen.getByText("0,2 mm")).toBeVisible();
+    expect(screen.getByText("75,0%")).toBeVisible();
+    expect(screen.getByText("12,0 km/jam")).toBeVisible();
+    expect(screen.getByText("90,0°")).toBeVisible();
+    expect(screen.getByText("1.008,0 hPa")).toBeVisible();
+    expect(screen.getByText("Data cuaca disediakan oleh Open-Meteo.")).toBeVisible();
+  });
+
+  it("keeps valid values visible when Current Weather is partial", async () => {
+    weatherResponse = {
+      ...currentWeatherResponse,
+      status: "partial",
+      warnings: [
+        { code: "partial_current_weather", message: "Sebagian data cuaca saat ini tidak tersedia." },
+      ],
+      variables: {
+        ...currentWeatherResponse.variables,
+        wind_speed_10m: {
+          ...currentWeatherResponse.variables.wind_speed_10m,
+          value: null,
+          freshness_status: "unavailable",
+          status: "unavailable",
+        },
+      },
+    };
+
+    render(<App />);
+
+    expect(await screen.findByText("Sebagian data cuaca saat ini tidak tersedia.")).toBeVisible();
+    expect(screen.getByText("27,3 °C")).toBeVisible();
+    expect(screen.getByText("Tidak tersedia")).toBeVisible();
+  });
+
+  it("shows an unavailable state without fabricated weather values", async () => {
+    weatherResponse = {
+      ...currentWeatherResponse,
+      status: "unavailable",
+      variables: {},
+      warnings: [
+        { code: "current_weather_unavailable", message: "Kondisi cuaca saat ini belum tersedia." },
+      ],
+    };
+
+    render(<App />);
+
+    expect(await screen.findByText("Kondisi cuaca saat ini belum tersedia.")).toBeVisible();
+    expect(screen.queryByText("Suhu udara")).not.toBeInTheDocument();
+    expect(screen.queryByText("0,0 °C")).not.toBeInTheDocument();
   });
 });

@@ -15,6 +15,23 @@ type PredictionResponse = {
   };
 };
 
+type WeatherVariable = {
+  value: number | null;
+  unit: string;
+  timestamp: string;
+  freshness_status: "fresh" | "stale" | "unavailable";
+  status: "available" | "unavailable";
+  interval_start?: string;
+};
+
+type WeatherResponse = {
+  status: "complete" | "partial" | "unavailable";
+  current_weather_timestamp?: string;
+  variables: Record<string, WeatherVariable>;
+  warnings: { code: string; message: string }[];
+  provider?: { attribution: string };
+};
+
 const classLabels = {
   rain: "Hujan",
   no_rain: "Tidak hujan",
@@ -65,15 +82,58 @@ function formatFreshness(seconds: number): string {
   return `Diperbarui ${minutes} menit lalu`;
 }
 
+function formatWeatherNumber(value: number): string {
+  return new Intl.NumberFormat("id-ID", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatWeatherValue(field: string, value: number): string {
+  const formatted = formatWeatherNumber(value);
+  const units: Record<string, string> = {
+    temperature_2m: "°C",
+    relative_humidity_2m: "%",
+    precipitation_1h: "mm",
+    cloud_cover: "%",
+    wind_speed_10m: "km/jam",
+    wind_direction_10m: "°",
+    sea_level_pressure: "hPa",
+  };
+  const unit = units[field];
+  return unit === "%" || unit === "°" ? `${formatted}${unit}` : `${formatted} ${unit}`;
+}
+
+const weatherLabels: Record<string, string> = {
+  temperature_2m: "Suhu udara",
+  relative_humidity_2m: "Kelembapan relatif",
+  precipitation_1h: "Curah hujan 1 jam terakhir (mm)",
+  cloud_cover: "Tutupan awan",
+  wind_speed_10m: "Kecepatan angin",
+  wind_direction_10m: "Arah angin",
+  sea_level_pressure: "Tekanan udara permukaan laut",
+};
+
+const weatherOrder = [
+  "temperature_2m",
+  "relative_humidity_2m",
+  "precipitation_1h",
+  "cloud_cover",
+  "wind_speed_10m",
+  "wind_direction_10m",
+  "sea_level_pressure",
+];
+
 export function App() {
   const [response, setResponse] = useState<PredictionResponse | null>(null);
+  const [weather, setWeather] = useState<WeatherResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     let isCurrent = true;
 
-    fetch("/api/v1/predictions/current")
+    const predictionRequest = fetch("/api/v1/predictions/current")
       .then((result) => {
         if (!result.ok) {
           throw new Error("prediction request failed");
@@ -92,6 +152,30 @@ export function App() {
           setIsLoading(false);
         }
       });
+
+    const weatherRequest = fetch("/api/v1/weather/current")
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error("weather request failed");
+        }
+        return result.json() as Promise<WeatherResponse>;
+      })
+      .then((data) => {
+        if (isCurrent) {
+          setWeather(data);
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setWeather(null);
+        }
+      });
+
+    Promise.allSettled([predictionRequest, weatherRequest]).then(() => {
+      if (isCurrent) {
+        setIsLoading(false);
+      }
+    });
 
     return () => {
       isCurrent = false;
@@ -178,6 +262,52 @@ export function App() {
           </div>
         </dl>
       </section>
+
+      {weather ? (
+        <section className="weather-card" aria-labelledby="weather-title">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Kondisi terbaru</p>
+              <h2 id="weather-title">Cuaca saat ini</h2>
+            </div>
+            {weather.current_weather_timestamp ? (
+              <p className="timestamp">
+                {formatFeatureTimestamp(weather.current_weather_timestamp)} WIB
+              </p>
+            ) : null}
+          </div>
+
+          {weather.warnings.map((warning) => (
+            <p className="weather-warning" key={warning.code} role="status">
+              {warning.message}
+            </p>
+          ))}
+
+          {weather.status === "unavailable" ? null : (
+            <dl className="weather-grid">
+              {weatherOrder.map((field) => {
+                const variable = weather.variables[field];
+                const isUnavailable = !variable || variable.status === "unavailable";
+                return (
+                  <div key={field}>
+                    <dt>{weatherLabels[field]}</dt>
+                    <dd>
+                      {isUnavailable || variable.value === null
+                        ? "Tidak tersedia"
+                        : formatWeatherValue(field, variable.value)}
+                      {!isUnavailable && variable.freshness_status === "stale" ? (
+                        <span className="stale-indicator"> (data lama)</span>
+                      ) : null}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+          )}
+
+          {weather.provider ? <p className="attribution">{weather.provider.attribution}</p> : null}
+        </section>
+      ) : null}
     </main>
   );
 }

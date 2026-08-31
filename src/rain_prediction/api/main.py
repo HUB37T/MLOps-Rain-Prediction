@@ -5,6 +5,12 @@ from typing import Protocol
 
 from fastapi import FastAPI
 
+from rain_prediction.ingestion.weather import (
+    MockWeatherProvider,
+    WeatherProvider,
+    resolve_current_weather,
+)
+
 
 class Clock(Protocol):
     def now(self) -> datetime:
@@ -85,14 +91,32 @@ def _current_prediction(clock: Clock, predictor: Predictor) -> dict[str, object]
     }
 
 
-def create_app(clock: Clock | None = None, predictor: Predictor | None = None) -> FastAPI:
+def create_app(
+    clock: Clock | None = None,
+    predictor: Predictor | None = None,
+    weather_provider: WeatherProvider | None = None,
+) -> FastAPI:
     app = FastAPI(title="Rain Risk API", version="0.1.0")
     current_clock = clock or SystemClock()
     current_predictor = predictor or MockPredictor()
+    current_weather_provider = weather_provider or MockWeatherProvider()
 
     @app.get("/api/v1/predictions/current")
     def get_current_prediction() -> dict[str, object]:
         return _current_prediction(current_clock, current_predictor)
+
+    @app.get("/api/v1/weather/current")
+    def get_current_weather() -> dict[str, object]:
+        server_time = current_clock.now().astimezone(UTC)
+        weather = resolve_current_weather(current_weather_provider, server_time)
+        return {
+            "server_time": _utc_timestamp(server_time),
+            "primary_location": {
+                "id": "filkom-ub",
+                "name": "FILKOM Universitas Brawijaya",
+            },
+            **weather,
+        }
 
     return app
 
