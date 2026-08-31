@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
 type PredictionResponse = {
+  server_time: string;
   primary_location: { name: string };
+  status: "available" | "pending" | "insufficient_feature_window" | "unavailable" | "invalid";
   prediction: {
     prediction_horizon: { start: string; end: string };
     rain_probability: number;
@@ -12,7 +14,8 @@ type PredictionResponse = {
     feature_timestamp: string;
     data_freshness_seconds: number;
     model: { version: string };
-  };
+  } | null;
+  warnings: { code: string; message: string }[];
 };
 
 type WeatherVariable = {
@@ -124,6 +127,13 @@ const weatherOrder = [
   "sea_level_pressure",
 ];
 
+const predictionStatusMessages: Record<Exclude<PredictionResponse["status"], "available">, string> = {
+  pending: "Prediksi sedang disiapkan.",
+  insufficient_feature_window: "Sedang mengumpulkan data yang cukup untuk membuat prediksi.",
+  unavailable: "Prediksi untuk periode saat ini belum tersedia.",
+  invalid: "Prediksi saat ini tidak tersedia karena hasilnya tidak dapat diverifikasi.",
+};
+
 export function App() {
   const [response, setResponse] = useState<PredictionResponse | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
@@ -199,6 +209,7 @@ export function App() {
   }
 
   const { prediction } = response;
+  const statusMessage = response.status === "available" ? null : predictionStatusMessages[response.status];
 
   return (
     <main className="page-shell">
@@ -216,51 +227,67 @@ export function App() {
           <strong>{response.primary_location.name}</strong>
         </div>
 
-        <div className="probability-block">
-          <p className="label" id="prediction-title">
-            Peluang hujan dalam 3 jam ke depan
+        {response.warnings
+          .filter((warning) => warning.message !== statusMessage)
+          .map((warning) => (
+            <p className="prediction-warning" key={warning.code} role="status">
+              {warning.message}
+            </p>
+          ))}
+
+        {prediction ? (
+          <>
+            <div className="probability-block">
+              <p className="label" id="prediction-title">
+                Peluang hujan dalam 3 jam ke depan
+              </p>
+              <strong className="probability">{formatPercentage(prediction.rain_probability)}</strong>
+            </div>
+
+            <div className="decision-grid">
+              <div>
+                <p className="label">Prediksi model</p>
+                <p className="value">{classLabels[prediction.predicted_class]}</p>
+              </div>
+              <div>
+                <p className="label">Tingkat persiapan</p>
+                <p className="value">{riskLabels[prediction.risk_level]}</p>
+              </div>
+            </div>
+
+            <div className="preparation">
+              <p className="label">Panduan persiapan</p>
+              <p>{prediction.preparation_action}</p>
+            </div>
+
+            <dl className="metadata">
+              <div>
+                <dt>Periode prediksi</dt>
+                <dd>{formatHorizon(prediction.prediction_horizon.start, prediction.prediction_horizon.end)}</dd>
+              </div>
+              <div>
+                <dt>Data model</dt>
+                <dd>{formatFreshness(prediction.data_freshness_seconds)}</dd>
+              </div>
+              <div>
+                <dt>Feature Timestamp</dt>
+                <dd>{formatFeatureTimestamp(prediction.feature_timestamp)} WIB</dd>
+              </div>
+              <div>
+                <dt>Model</dt>
+                <dd>Model: {prediction.model.version}</dd>
+              </div>
+              <div>
+                <dt>Ambang keputusan yang digunakan</dt>
+                <dd>{formatPercentage(prediction.decision_threshold)}</dd>
+              </div>
+            </dl>
+          </>
+        ) : (
+          <p className="prediction-status" id="prediction-title">
+            {statusMessage}
           </p>
-          <strong className="probability">{formatPercentage(prediction.rain_probability)}</strong>
-        </div>
-
-        <div className="decision-grid">
-          <div>
-            <p className="label">Prediksi model</p>
-            <p className="value">{classLabels[prediction.predicted_class]}</p>
-          </div>
-          <div>
-            <p className="label">Tingkat persiapan</p>
-            <p className="value">{riskLabels[prediction.risk_level]}</p>
-          </div>
-        </div>
-
-        <div className="preparation">
-          <p className="label">Panduan persiapan</p>
-          <p>{prediction.preparation_action}</p>
-        </div>
-
-        <dl className="metadata">
-          <div>
-            <dt>Periode prediksi</dt>
-            <dd>{formatHorizon(prediction.prediction_horizon.start, prediction.prediction_horizon.end)}</dd>
-          </div>
-          <div>
-            <dt>Data model</dt>
-            <dd>{formatFreshness(prediction.data_freshness_seconds)}</dd>
-          </div>
-          <div>
-            <dt>Feature Timestamp</dt>
-            <dd>{formatFeatureTimestamp(prediction.feature_timestamp)} WIB</dd>
-          </div>
-          <div>
-            <dt>Model</dt>
-            <dd>Model: {prediction.model.version}</dd>
-          </div>
-          <div>
-            <dt>Ambang keputusan yang digunakan</dt>
-            <dd>{formatPercentage(prediction.decision_threshold)}</dd>
-          </div>
-        </dl>
+        )}
       </section>
 
       {weather ? (

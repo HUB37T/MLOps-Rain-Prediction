@@ -81,6 +81,8 @@ h2 {
 
 .timestamp,
 .weather-warning,
+.prediction-warning,
+.prediction-status,
 .attribution {
   color: #d4cdbd;
   line-height: 1.5;
@@ -94,6 +96,16 @@ h2 {
 .weather-warning {
   border-left: 3px solid #f6c66e;
   padding-left: 1rem;
+}
+
+.prediction-warning {
+  border-left: 3px solid #f6c66e;
+  padding-left: 1rem;
+}
+
+.prediction-status {
+  padding: 2rem 0;
+  font-size: 1.15rem;
 }
 
 .weather-grid {
