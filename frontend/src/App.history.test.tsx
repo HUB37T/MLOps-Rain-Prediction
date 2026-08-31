@@ -27,6 +27,11 @@ const historyResponse = {
         freshness_status: "stale",
       },
     },
+    ...Array.from({ length: 22 }, (_, index) => ({
+      official_prediction_time: new Date(Date.parse("2026-08-30T05:00:00Z") - index * 60 * 60 * 1_000).toISOString(),
+      status: "unavailable",
+      prediction: null,
+    })),
   ],
 };
 
@@ -98,5 +103,65 @@ describe("prediction history", () => {
 
     expect(await screen.findByText("Belum ada prediksi yang berhasil diterbitkan dalam 24 slot terakhir.")).toBeVisible();
     expect(screen.queryByText("0,0%")).not.toBeInTheDocument();
+  });
+
+  it("does not expose prediction values for non-issued slots", async () => {
+    const contradictoryHistory = {
+      ...historyResponse,
+      slots: historyResponse.slots.map((slot, index) =>
+        index === 0 ? { ...slot, prediction: historyResponse.slots[1].prediction } : slot,
+      ),
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        const body = path.includes("/history")
+          ? contradictoryHistory
+          : path.includes("/weather/current")
+            ? unavailableWeather
+            : {
+                server_time: "2026-08-30T07:05:00Z",
+                primary_location: { name: "FILKOM Universitas Brawijaya" },
+                status: "pending",
+                prediction: null,
+                warnings: [{ code: "prediction_pending", message: "Prediksi sedang disiapkan." }],
+              };
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      }),
+    );
+
+    render(<App />);
+
+    const pendingRow = (await screen.findByText("Menunggu penerbitan")).closest("tr");
+    expect(pendingRow).toHaveTextContent("-");
+    expect(pendingRow).not.toHaveTextContent("78,4%");
+    expect(screen.getAllByText("78,4%")).toHaveLength(1);
+  });
+
+  it("rejects a history response that does not contain 24 slots", async () => {
+    const invalidHistory = { ...historyResponse, slot_count: 1, slots: historyResponse.slots.slice(0, 1) };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        const body = path.includes("/history")
+          ? invalidHistory
+          : path.includes("/weather/current")
+            ? unavailableWeather
+            : {
+                server_time: "2026-08-30T07:05:00Z",
+                primary_location: { name: "FILKOM Universitas Brawijaya" },
+                status: "pending",
+                prediction: null,
+                warnings: [{ code: "prediction_pending", message: "Prediksi sedang disiapkan." }],
+              };
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      }),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText("Riwayat prediksi belum dapat dimuat.")).toBeVisible();
   });
 });

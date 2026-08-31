@@ -33,7 +33,11 @@ const predictionResponse = {
 const historyResponse = {
   server_time: "2026-08-30T07:05:00Z",
   slot_count: 24,
-  slots: [],
+  slots: Array.from({ length: 24 }, (_, index) => ({
+    official_prediction_time: new Date(Date.parse("2026-08-30T07:00:00Z") - index * 60 * 60 * 1_000).toISOString(),
+    status: "unavailable",
+    prediction: null,
+  })),
 };
 
 function response(body: object, status = 200): Response {

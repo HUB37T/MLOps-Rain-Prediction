@@ -311,8 +311,8 @@ function PredictionHistory({ history }: { history: HistoryResponse }) {
   );
   const chartData = history.slots.map((slot) => ({
     time: formatWibTime(slot.official_prediction_time),
-    rainProbability: slot.prediction?.rain_probability ?? null,
-    decisionThreshold: slot.prediction?.decision_threshold ?? null,
+    rainProbability: slot.status === "issued" ? slot.prediction?.rain_probability ?? null : null,
+    decisionThreshold: slot.status === "issued" ? slot.prediction?.decision_threshold ?? null : null,
   }));
 
   return (
@@ -340,7 +340,7 @@ function PredictionHistory({ history }: { history: HistoryResponse }) {
             <CartesianGrid stroke="#38514e" strokeDasharray="3 3" />
             <XAxis dataKey="time" minTickGap={24} />
             <YAxis domain={[0, 1]} tickFormatter={formatPercentage} />
-            <Tooltip />
+            <Tooltip formatter={(value) => (typeof value === "number" ? formatPercentage(value) : "-")} />
             <Line
               type="monotone"
               dataKey="rainProbability"
@@ -380,7 +380,7 @@ function PredictionHistory({ history }: { history: HistoryResponse }) {
           </thead>
           <tbody>
             {history.slots.map((slot) => {
-              const prediction = slot.prediction;
+              const prediction = slot.status === "issued" ? slot.prediction : null;
               return (
                 <tr key={slot.official_prediction_time}>
                   <th scope="row">{formatWibTime(slot.official_prediction_time)} WIB</th>
@@ -495,9 +495,9 @@ export function App() {
         if (!verifyServerTime(data.server_time, sessionClockRef.current)) {
           throw new ApiRequestError("unverified_time");
         }
-        if (!Array.isArray(data.slots)) {
-          throw new ApiRequestError("history_unavailable");
-        }
+         if (data.slot_count !== 24 || !Array.isArray(data.slots) || data.slots.length !== 24) {
+           throw new ApiRequestError("history_unavailable");
+         }
         if (mountedRef.current && requestId === historyRequestId.current) {
           setHistory(data);
           setHistoryError(false);
