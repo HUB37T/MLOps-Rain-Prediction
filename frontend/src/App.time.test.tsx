@@ -102,4 +102,89 @@ describe("authoritative session time", () => {
     expect(screen.getByText("Prediksi untuk periode saat ini belum tersedia.")).toBeVisible();
     expect(screen.queryByText("Peluang hujan dalam 3 jam ke depan")).not.toBeInTheDocument();
   });
+
+  it("refreshes once after expiration and renders the newer prediction", async () => {
+    vi.useFakeTimers();
+    let monotonicTime = 0;
+    let predictionCalls = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicTime);
+    const refreshedPrediction = {
+      ...predictionResponse,
+      server_time: "2026-08-30T11:00:00Z",
+      prediction: {
+        ...predictionResponse.prediction,
+        prediction_horizon: { start: "2026-08-30T12:00:00Z", end: "2026-08-30T15:00:00Z" },
+        rain_probability: 0.6,
+        predicted_class: "rain",
+        feature_timestamp: "2026-08-30T11:00:00Z",
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/weather/current")) return Promise.resolve(response(weatherResponse));
+        if (path.includes("/history")) return Promise.resolve(response(historyResponse));
+        predictionCalls += 1;
+        return Promise.resolve(response(predictionCalls === 1 ? predictionResponse : refreshedPrediction));
+      }),
+    );
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(predictionCalls).toBe(1);
+
+    monotonicTime = 4 * 60 * 60 * 1000;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(predictionCalls).toBe(2);
+    expect(screen.getByText("60,0%")).toBeVisible();
+    expect(screen.getByText("Hujan")).toBeVisible();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(predictionCalls).toBe(2);
+  });
+
+  it("keeps the expired state when the boundary refresh fails", async () => {
+    vi.useFakeTimers();
+    let monotonicTime = 0;
+    let predictionCalls = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicTime);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/weather/current")) return Promise.resolve(response(weatherResponse));
+        if (path.includes("/history")) return Promise.resolve(response(historyResponse));
+        predictionCalls += 1;
+        return predictionCalls === 1
+          ? Promise.resolve(response(predictionResponse))
+          : Promise.reject(new Error("network failure"));
+      }),
+    );
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    monotonicTime = 4 * 60 * 60 * 1000;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(predictionCalls).toBe(2);
+    expect(screen.getByText("Prediksi untuk periode saat ini belum tersedia.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Coba lagi" })).toBeVisible();
+    expect(screen.queryByText("Peluang hujan dalam 3 jam ke depan")).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(predictionCalls).toBe(2);
+  });
 });

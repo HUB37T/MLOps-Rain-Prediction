@@ -438,6 +438,7 @@ export function App() {
     greatestServerTimeMs: null,
   });
   const predictionRequestId = useRef(0);
+  const expirationRefreshKeyRef = useRef<string | null>(null);
   const weatherRequestId = useRef(0);
   const historyRequestId = useRef(0);
 
@@ -541,6 +542,29 @@ export function App() {
     const interval = window.setInterval(updateSessionTime, 1_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (
+      response?.status !== "available"
+      || response.prediction === null
+      || sessionNowMs === null
+    ) {
+      expirationRefreshKeyRef.current = null;
+      return;
+    }
+
+    const prediction = response.prediction;
+    const refreshKey = `${prediction.feature_timestamp}:${prediction.prediction_horizon.end}`;
+    const resolvedResponse = resolveSessionPrediction(response, sessionNowMs);
+    if (resolvedResponse.status !== "unavailable") {
+      expirationRefreshKeyRef.current = null;
+      return;
+    }
+    if (expirationRefreshKeyRef.current === refreshKey) return;
+
+    expirationRefreshKeyRef.current = refreshKey;
+    void loadPrediction();
+  }, [response, sessionNowMs]);
 
   if (isLoading) {
     return (
