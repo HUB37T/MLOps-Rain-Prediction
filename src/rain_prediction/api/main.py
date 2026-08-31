@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Protocol
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import JSONResponse
 
 from rain_prediction.inference.lifecycle import (
     MockPredictionRepository,
     PredictionRepository,
+    PredictionServiceError,
     resolve_current_prediction,
     resolve_prediction_history,
 )
@@ -43,6 +45,13 @@ def _utc_timestamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"code": code, "message": message}},
+    )
+
+
 def create_app(
     clock: Clock | None = None,
     predictor: Predictor | None = None,
@@ -50,6 +59,27 @@ def create_app(
     prediction_repository: PredictionRepository | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Rain Risk API", version="0.1.0")
+
+    @app.exception_handler(WeatherProviderError)
+    def handle_weather_provider_error(_: Request, __: WeatherProviderError) -> JSONResponse:
+        return _error_response(
+            502,
+            "weather_provider_unavailable",
+            "Weather data is temporarily unavailable.",
+        )
+
+    @app.exception_handler(PredictionServiceError)
+    def handle_prediction_service_error(_: Request, __: PredictionServiceError) -> JSONResponse:
+        return _error_response(
+            503,
+            "prediction_service_unavailable",
+            "Prediction service is temporarily unavailable.",
+        )
+
+    @app.exception_handler(Exception)
+    def handle_unexpected_error(_: Request, __: Exception) -> JSONResponse:
+        return _error_response(500, "internal_server_error", "An unexpected server error occurred.")
+
     current_clock = clock or SystemClock()
     current_predictor = predictor or MockPredictor()
     current_weather_provider = weather_provider or OpenMeteoWeatherProvider()
@@ -68,24 +98,7 @@ def create_app(
     @app.get("/api/v1/weather/current")
     def get_current_weather() -> dict[str, object]:
         server_time = current_clock.now().astimezone(UTC)
-        try:
-            weather = resolve_current_weather(current_weather_provider, server_time)
-        except WeatherProviderError:
-            return {
-                "server_time": _utc_timestamp(server_time),
-                "primary_location": {
-                    "id": "filkom-ub",
-                    "name": "FILKOM Universitas Brawijaya",
-                },
-                "status": "unavailable",
-                "variables": {},
-                "warnings": [
-                    {
-                        "code": "weather_provider_unavailable",
-                        "message": "Kondisi cuaca saat ini belum tersedia.",
-                    }
-                ],
-            }
+        weather = resolve_current_weather(current_weather_provider, server_time)
         return {
             "server_time": _utc_timestamp(server_time),
             "primary_location": {

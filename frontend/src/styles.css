@@ -116,6 +116,22 @@ h2 {
   font-size: 1.15rem;
 }
 
+.retry-button {
+  margin-top: 1rem;
+  border: 1px solid #f6c66e;
+  border-radius: 999px;
+  background: transparent;
+  color: #f6c66e;
+  cursor: pointer;
+  padding: 0.7rem 1.1rem;
+  font: inherit;
+}
+
+.retry-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .history-summary,
 .history-empty {
   color: #d4cdbd;

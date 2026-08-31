@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -66,6 +66,27 @@ type HistoryResponse = {
   slot_count: number;
   slots: HistorySlot[];
 };
+
+class ApiRequestError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const result = await fetch(url);
+  if (!result.ok) {
+    let code = "backend_unavailable";
+    try {
+      const body = (await result.json()) as { error?: { code?: string } };
+      code = body.error?.code ?? code;
+    } catch {
+      // Preserve the safe generic code when the error body is not JSON.
+    }
+    throw new ApiRequestError(code);
+  }
+  return result.json() as Promise<T>;
+}
 
 const classLabels = {
   rain: "Hujan",
@@ -277,80 +298,105 @@ function PredictionHistory({ history }: { history: HistoryResponse }) {
   );
 }
 
+function predictionErrorMessage(code: string, hasVerifiedData: boolean): string {
+  if (hasVerifiedData) {
+    return "Layanan belum dapat dihubungi. Menampilkan data terakhir yang berhasil dimuat.";
+  }
+  if (code === "prediction_service_unavailable") {
+    return "Prediksi belum dapat dibuat. Coba lagi nanti.";
+  }
+  return "Layanan belum dapat dihubungi. Prediksi saat ini belum dapat dimuat.";
+}
+
 export function App() {
   const [response, setResponse] = useState<PredictionResponse | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
+  const [predictionError, setPredictionError] = useState<string | null>(null);
+  const [weatherError, setWeatherError] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const mountedRef = useRef(true);
+  const predictionRequestId = useRef(0);
+  const weatherRequestId = useRef(0);
+  const historyRequestId = useRef(0);
+
+  const loadPrediction = () => {
+    const requestId = ++predictionRequestId.current;
+    return fetchJson<PredictionResponse>("/api/v1/predictions/current")
+      .then((data) => {
+        if (mountedRef.current && requestId === predictionRequestId.current) {
+          setResponse(data);
+          setPredictionError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (mountedRef.current && requestId === predictionRequestId.current) {
+          setPredictionError(error instanceof ApiRequestError ? error.code : "backend_unavailable");
+        }
+      });
+  };
+
+  const loadWeather = () => {
+    const requestId = ++weatherRequestId.current;
+    return fetchJson<WeatherResponse>("/api/v1/weather/current")
+      .then((data) => {
+        if (mountedRef.current && requestId === weatherRequestId.current) {
+          setWeather(data);
+          setWeatherError(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current && requestId === weatherRequestId.current) {
+          setWeatherError(true);
+        }
+      });
+  };
+
+  const loadHistory = () => {
+    const requestId = ++historyRequestId.current;
+    return fetchJson<HistoryResponse>("/api/v1/predictions/history?slots=24")
+      .then((data) => {
+        if (!Array.isArray(data.slots)) {
+          throw new ApiRequestError("history_unavailable");
+        }
+        if (mountedRef.current && requestId === historyRequestId.current) {
+          setHistory(data);
+          setHistoryError(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current && requestId === historyRequestId.current) {
+          setHistoryError(true);
+        }
+      });
+  };
+
+  const retry = () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    Promise.allSettled([loadPrediction(), loadWeather(), loadHistory()]).then(() => {
+      if (mountedRef.current) {
+        setIsRetrying(false);
+      }
+    });
+  };
 
   useEffect(() => {
-    let isCurrent = true;
-
-    const predictionRequest = fetch("/api/v1/predictions/current")
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error("prediction request failed");
-        }
-        return result.json() as Promise<PredictionResponse>;
-      })
-      .then((data) => {
-        if (isCurrent) {
-          setResponse(data);
-          setIsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (isCurrent) {
-          setHasError(true);
-          setIsLoading(false);
-        }
-      });
-
-    const weatherRequest = fetch("/api/v1/weather/current")
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error("weather request failed");
-        }
-        return result.json() as Promise<WeatherResponse>;
-      })
-      .then((data) => {
-        if (isCurrent) {
-          setWeather(data);
-        }
-      })
-      .catch(() => {
-        if (isCurrent) {
-          setWeather(null);
-        }
-      });
-
-    const historyRequest = fetch("/api/v1/predictions/history?slots=24")
-      .then((result) => {
-        if (!result.ok) {
-          throw new Error("history request failed");
-        }
-        return result.json() as Promise<HistoryResponse>;
-      })
-      .then((data) => {
-        if (isCurrent && Array.isArray(data.slots)) {
-          setHistory(data);
-        }
-      })
-      .catch(() => {
-        if (isCurrent) {
-          setHistory(null);
-        }
-      });
+    mountedRef.current = true;
+    const predictionRequest = loadPrediction();
+    const weatherRequest = loadWeather();
+    const historyRequest = loadHistory();
 
     Promise.allSettled([predictionRequest, weatherRequest, historyRequest]).then(() => {
-      if (isCurrent) {
+      if (mountedRef.current) {
         setIsLoading(false);
       }
     });
 
     return () => {
-      isCurrent = false;
+      mountedRef.current = false;
     };
   }, []);
 
@@ -362,16 +408,11 @@ export function App() {
     );
   }
 
-  if (hasError || !response) {
-    return (
-      <main className="page-shell">
-        <p role="alert">Prediksi saat ini belum dapat dimuat.</p>
-      </main>
-    );
-  }
-
-  const { prediction } = response;
-  const statusMessage = response.status === "available" ? null : predictionStatusMessages[response.status];
+  const prediction = response?.prediction ?? null;
+  const statusMessage = response && response.status !== "available"
+    ? predictionStatusMessages[response.status]
+    : null;
+  const hasRecoverableError = predictionError !== null || weatherError || historyError;
 
   return (
     <main className="page-shell">
@@ -386,10 +427,10 @@ export function App() {
       <section className="prediction-card" aria-labelledby="prediction-title">
         <div className="location-row">
           <span>Lokasi utama</span>
-          <strong>{response.primary_location.name}</strong>
+          <strong>{response?.primary_location.name ?? "FILKOM Universitas Brawijaya"}</strong>
         </div>
 
-        {response.warnings
+        {response?.warnings
           .filter((warning) => warning.message !== statusMessage)
           .map((warning) => (
             <p className="prediction-warning" key={warning.code} role="status">
@@ -446,8 +487,11 @@ export function App() {
             </dl>
           </>
         ) : (
-          <p className="prediction-status" id="prediction-title">
-            {statusMessage}
+          <p className="prediction-status" id="prediction-title" role={predictionError ? "alert" : undefined}>
+            {statusMessage ??
+              (predictionError
+                ? predictionErrorMessage(predictionError, false)
+                : "Prediksi untuk periode saat ini belum tersedia.")}
           </p>
         )}
       </section>
@@ -471,6 +515,12 @@ export function App() {
               {warning.message}
             </p>
           ))}
+
+          {weatherError ? (
+            <p className="weather-warning" role="status">
+              Pembaruan cuaca gagal. Menampilkan data sebelumnya.
+            </p>
+          ) : null}
 
           {weather.status === "unavailable" ? null : (
             <dl className="weather-grid">
@@ -496,9 +546,31 @@ export function App() {
 
           {weather.provider ? <p className="attribution">{weather.provider.attribution}</p> : null}
         </section>
+      ) : weatherError ? (
+        <section className="weather-card" aria-labelledby="weather-title">
+          <h2 id="weather-title">Cuaca saat ini</h2>
+          <p className="weather-warning" role="status">
+            Kondisi cuaca saat ini belum tersedia.
+          </p>
+        </section>
       ) : null}
 
-      {history ? <PredictionHistory history={history} /> : null}
+      {history ? (
+        <PredictionHistory history={history} />
+      ) : historyError ? (
+        <section className="history-card" aria-labelledby="history-title">
+          <h2 id="history-title">Riwayat prediksi 24 jam</h2>
+          <p className="history-empty" role="status">
+            Riwayat prediksi belum dapat dimuat.
+          </p>
+        </section>
+      ) : null}
+
+      {hasRecoverableError ? (
+        <button className="retry-button" type="button" onClick={retry} disabled={isRetrying}>
+          {isRetrying ? "Mencoba kembali..." : "Coba lagi"}
+        </button>
+      ) : null}
     </main>
   );
 }

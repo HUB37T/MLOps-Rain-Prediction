@@ -5,6 +5,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 
+class PredictionServiceError(RuntimeError):
+    """Raised when stored Prediction Records cannot be resolved."""
+
+
 class PredictionRepository(Protocol):
     def list_records(self) -> list[dict[str, object]]:
         """Return stored Prediction Records for the Primary Location."""
