@@ -6,8 +6,9 @@ from typing import Protocol
 from fastapi import FastAPI
 
 from rain_prediction.ingestion.weather import (
-    MockWeatherProvider,
+    OpenMeteoWeatherProvider,
     WeatherProvider,
+    WeatherProviderError,
     resolve_current_weather,
 )
 
@@ -99,7 +100,7 @@ def create_app(
     app = FastAPI(title="Rain Risk API", version="0.1.0")
     current_clock = clock or SystemClock()
     current_predictor = predictor or MockPredictor()
-    current_weather_provider = weather_provider or MockWeatherProvider()
+    current_weather_provider = weather_provider or OpenMeteoWeatherProvider()
 
     @app.get("/api/v1/predictions/current")
     def get_current_prediction() -> dict[str, object]:
@@ -108,7 +109,24 @@ def create_app(
     @app.get("/api/v1/weather/current")
     def get_current_weather() -> dict[str, object]:
         server_time = current_clock.now().astimezone(UTC)
-        weather = resolve_current_weather(current_weather_provider, server_time)
+        try:
+            weather = resolve_current_weather(current_weather_provider, server_time)
+        except WeatherProviderError:
+            return {
+                "server_time": _utc_timestamp(server_time),
+                "primary_location": {
+                    "id": "filkom-ub",
+                    "name": "FILKOM Universitas Brawijaya",
+                },
+                "status": "unavailable",
+                "variables": {},
+                "warnings": [
+                    {
+                        "code": "weather_provider_unavailable",
+                        "message": "Kondisi cuaca saat ini belum tersedia.",
+                    }
+                ],
+            }
         return {
             "server_time": _utc_timestamp(server_time),
             "primary_location": {

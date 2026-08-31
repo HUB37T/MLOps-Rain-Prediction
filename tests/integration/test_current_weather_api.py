@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from fastapi.testclient import TestClient
 
 from rain_prediction.api.main import create_app
+from rain_prediction.ingestion.weather import OpenMeteoWeatherProvider
 
 
 class FixedClock:
@@ -161,3 +163,45 @@ def test_current_weather_is_unavailable_when_all_core_values_are_missing() -> No
     assert body["warnings"] == [
         {"code": "current_weather_unavailable", "message": "Kondisi cuaca saat ini belum tersedia."}
     ]
+
+
+def test_open_meteo_provider_feeds_the_current_weather_http_contract() -> None:
+    provider_response = {
+        "latitude": -7.9666,
+        "longitude": 112.6326,
+        "current_units": {
+            "temperature_2m": "°C",
+            "relative_humidity_2m": "%",
+            "precipitation": "mm",
+            "cloud_cover": "%",
+            "wind_speed_10m": "km/h",
+            "wind_direction_10m": "°",
+            "pressure_msl": "hPa",
+        },
+        "current": {
+            "time": "2026-08-30T14:00",
+            "temperature_2m": 27.3,
+            "relative_humidity_2m": 82,
+            "precipitation": 0.2,
+            "cloud_cover": 75,
+            "wind_speed_10m": 12,
+            "wind_direction_10m": 90,
+            "pressure_msl": 1008,
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=provider_response, request=request)
+
+    provider = OpenMeteoWeatherProvider(
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        base_url="https://api.open-meteo.com/v1/forecast",
+        timezone_name="Asia/Jakarta",
+    )
+    client = TestClient(create_app(clock=FixedClock(CURRENT_TIME), weather_provider=provider))
+
+    body = client.get("/api/v1/weather/current").json()
+
+    assert body["status"] == "complete"
+    assert body["variables"]["sea_level_pressure"]["value"] == 1008.0
+    assert body["provenance"]["provider_identity"] == "Open-Meteo"
