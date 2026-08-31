@@ -244,7 +244,8 @@ function formatWeatherNumber(value: number): string {
 }
 
 function formatWeatherValue(field: string, value: number): string {
-  const formatted = formatWeatherNumber(value);
+  const displayValue = field === "wind_direction_10m" && value === 360 ? 0 : value;
+  const formatted = formatWeatherNumber(displayValue);
   const units: Record<string, string> = {
     temperature_2m: "°C",
     relative_humidity_2m: "%",
@@ -256,6 +257,10 @@ function formatWeatherValue(field: string, value: number): string {
   };
   const unit = units[field];
   return unit === "%" || unit === "°" ? `${formatted}${unit}` : `${formatted} ${unit}`;
+}
+
+function formatCompletedInterval(start: string, end: string): string {
+  return `${formatWibTime(start)}-${formatWibTime(end)} WIB`;
 }
 
 const weatherLabels: Record<string, string> = {
@@ -599,6 +604,15 @@ export function App() {
       ?? (displayResponse?.status === "available" && prediction ? "Prediksi terbaru berhasil dimuat." : null)
       ?? (historyError ? "Riwayat prediksi belum dapat dimuat." : "");
   const assertiveAnnouncement = hasPredictionExpiry ? "Prediksi saat ini tidak tersedia." : "";
+  const weatherStatusMessage = weather?.status === "partial"
+    ? "Sebagian data cuaca saat ini tidak tersedia."
+    : weather?.status === "unavailable"
+      ? "Kondisi cuaca saat ini belum tersedia."
+      : null;
+  const hasVariableTimestampDifference = weather?.current_weather_timestamp !== undefined
+    && Object.values(weather.variables).some(
+      (variable) => variable.timestamp !== weather.current_weather_timestamp,
+    );
 
   return (
     <main className="page-shell">
@@ -729,6 +743,16 @@ export function App() {
               {warning.message}
             </p>
           ))}
+          {weatherStatusMessage && !weather.warnings.some((warning) => warning.message === weatherStatusMessage) ? (
+            <p className="weather-warning" role="status" aria-live="polite">
+              {weatherStatusMessage}
+            </p>
+          ) : null}
+          {hasVariableTimestampDifference ? (
+            <p className="weather-warning" role="status" aria-live="polite">
+              Sebagian data cuaca memiliki waktu pembaruan yang berbeda.
+            </p>
+          ) : null}
 
           {weatherError ? (
             <p className="weather-warning" role="status" aria-live="polite">
@@ -741,6 +765,9 @@ export function App() {
               {weatherOrder.map((field) => {
                 const variable = weather.variables[field];
                 const isUnavailable = !variable || variable.status === "unavailable";
+                const interval = !isUnavailable && field === "precipitation_1h" && variable.interval_start
+                  ? formatCompletedInterval(variable.interval_start, variable.timestamp)
+                  : null;
                 return (
                   <div key={field}>
                     <dt>{weatherLabels[field]}</dt>
@@ -748,6 +775,7 @@ export function App() {
                       {isUnavailable || variable.value === null
                         ? "Tidak tersedia"
                         : formatWeatherValue(field, variable.value)}
+                      {interval ? <span className="weather-interval">Interval: {interval}</span> : null}
                       {!isUnavailable && variable.freshness_status === "stale" ? (
                         <span className="stale-indicator"> (data lama)</span>
                       ) : null}

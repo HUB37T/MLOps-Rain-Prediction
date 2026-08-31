@@ -129,6 +129,12 @@ h2 {
   padding-left: 1rem;
 }
 
+.weather-interval {
+  display: block;
+  color: #9eb4ad;
+  font-size: 0.85rem;
+}
+
 .prediction-warning {
   border-left: 3px solid #f6c66e;
   padding-left: 1rem;

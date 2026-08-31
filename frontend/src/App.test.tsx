@@ -57,6 +57,7 @@ type WeatherResponseFixture = {
       value: number | null;
       unit: string;
       timestamp: string;
+      interval_start?: string;
       freshness_status: string;
       status: string;
     }
@@ -76,7 +77,7 @@ const currentWeatherResponse: WeatherResponseFixture = {
   variables: {
     temperature_2m: { value: 27.3, unit: "degC", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
     relative_humidity_2m: { value: 82, unit: "percent", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
-    precipitation_1h: { value: 0.2, unit: "mm", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
+     precipitation_1h: { value: 0.2, unit: "mm", timestamp: "2026-08-30T07:00:00Z", interval_start: "2026-08-30T06:00:00Z", freshness_status: "fresh", status: "available" },
     cloud_cover: { value: 75, unit: "percent", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
     wind_speed_10m: { value: 12, unit: "kmh", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
     wind_direction_10m: { value: 90, unit: "degree", timestamp: "2026-08-30T07:00:00Z", freshness_status: "fresh", status: "available" },
@@ -142,11 +143,38 @@ describe("primary Rain Prediction card", () => {
     expect(screen.getByText("82,0%")).toBeVisible();
     expect(screen.getByText("Curah hujan 1 jam terakhir (mm)")).toBeVisible();
     expect(screen.getByText("0,2 mm")).toBeVisible();
+    expect(screen.getByText("Interval: 13:00-14:00 WIB")).toBeVisible();
     expect(screen.getByText("75,0%")).toBeVisible();
     expect(screen.getByText("12,0 km/jam")).toBeVisible();
     expect(screen.getByText("90,0°")).toBeVisible();
     expect(screen.getByText("1.008,0 hPa")).toBeVisible();
     expect(screen.getByText("Data cuaca disediakan oleh Open-Meteo.")).toBeVisible();
+  });
+
+  it("normalizes wind direction and supplies missing partial status copy", async () => {
+    weatherResponse = {
+      ...currentWeatherResponse,
+      status: "partial",
+      warnings: [],
+      variables: {
+        ...currentWeatherResponse.variables,
+        precipitation_1h: {
+          ...currentWeatherResponse.variables.precipitation_1h,
+          interval_start: "2026-08-30T06:00:00Z",
+        },
+        wind_direction_10m: {
+          ...currentWeatherResponse.variables.wind_direction_10m,
+          value: 360,
+          timestamp: "2026-08-30T06:00:00Z",
+        },
+      },
+    };
+
+    render(<App />);
+
+    expect(await screen.findByText("Sebagian data cuaca saat ini tidak tersedia.")).toBeVisible();
+    expect(screen.getByText("0,0°")).toBeVisible();
+    expect(screen.getByText("Sebagian data cuaca memiliki waktu pembaruan yang berbeda.")).toBeVisible();
   });
 
   it("keeps valid values visible when Current Weather is partial", async () => {
