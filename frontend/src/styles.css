@@ -15,9 +15,25 @@ body {
   min-width: 320px;
 }
 
+:focus-visible {
+  outline: 3px solid #f6c66e;
+  outline-offset: 3px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .page-shell {
   margin: 0 auto;
   max-width: 760px;
+  overflow-wrap: anywhere;
   padding: 4rem 1.25rem;
 }
 
@@ -149,10 +165,13 @@ h2 {
 }
 
 .history-table-wrapper {
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
   overflow-x: auto;
 }
 
 table {
+  min-width: 42rem;
   width: 100%;
   border-collapse: collapse;
   color: #e5dfd1;
@@ -295,6 +314,10 @@ dd {
   }
 
   .metadata {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-grid {
     grid-template-columns: 1fr;
   }
 

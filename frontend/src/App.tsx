@@ -408,6 +408,19 @@ function predictionErrorMessage(code: string, hasVerifiedData: boolean): string 
   return "Layanan belum dapat dihubungi. Prediksi saat ini belum dapat dimuat.";
 }
 
+function LiveAnnouncements({ polite, assertive }: { polite: string; assertive: string }) {
+  return (
+    <>
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {polite}
+      </div>
+      <div className="sr-only" aria-live="assertive" aria-atomic="true">
+        {assertive}
+      </div>
+    </>
+  );
+}
+
 export function App() {
   const [response, setResponse] = useState<PredictionResponse | null>(null);
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
@@ -545,9 +558,26 @@ export function App() {
     ? predictionStatusMessages[displayResponse.status]
     : null;
   const hasRecoverableError = predictionError !== null || weatherError || historyError;
+  const hasPredictionExpiry = displayResponse?.status === "unavailable" || displayResponse?.status === "invalid";
+  const fallbackWarning = displayResponse?.warnings.find((warning) => warning.code === "prediction_fallback");
+  const staleWarning = displayResponse?.warnings.find((warning) => warning.code === "prediction_stale");
+  const hasVisiblePoliteAnnouncement = Boolean(
+    (predictionError && response)
+      || fallbackWarning
+      || staleWarning
+      || weather?.status === "partial"
+      || displayResponse?.status === "pending",
+  );
+  const politeAnnouncement = hasVisiblePoliteAnnouncement
+    ? ""
+    : (displayResponse?.status === "pending" ? "Prediksi sedang disiapkan." : null)
+      ?? (displayResponse?.status === "available" && prediction ? "Prediksi terbaru berhasil dimuat." : null)
+      ?? (historyError ? "Riwayat prediksi belum dapat dimuat." : "");
+  const assertiveAnnouncement = hasPredictionExpiry ? "Prediksi saat ini tidak tersedia." : "";
 
   return (
     <main className="page-shell">
+      <LiveAnnouncements polite={politeAnnouncement} assertive={assertiveAnnouncement} />
       <header className="page-header">
         <p className="eyebrow">Rain Risk Prediction</p>
         <h1>Persiapan kegiatan</h1>
@@ -563,7 +593,7 @@ export function App() {
         </div>
 
         {predictionError && response ? (
-          <p className="prediction-warning" role="status">
+          <p className="prediction-warning" role="status" aria-live="polite">
             {predictionErrorMessage(predictionError, true)}
           </p>
         ) : null}
@@ -571,7 +601,7 @@ export function App() {
         {displayResponse?.warnings
           .filter((warning) => warning.message !== statusMessage)
           .map((warning) => (
-            <p className="prediction-warning" key={warning.code} role="status">
+            <p className="prediction-warning" key={warning.code} role="status" aria-live="polite">
               {warning.message}
             </p>
           ))}
@@ -625,7 +655,12 @@ export function App() {
             </dl>
           </>
         ) : (
-          <p className="prediction-status" id="prediction-title" role={predictionError ? "alert" : undefined}>
+          <p
+            className="prediction-status"
+            id="prediction-title"
+            role={hasPredictionExpiry || (!response && predictionError) ? "alert" : undefined}
+            aria-live={hasPredictionExpiry || (!response && predictionError) ? "assertive" : "polite"}
+          >
             {statusMessage ??
               (predictionError
                 ? predictionErrorMessage(predictionError, false)
@@ -649,13 +684,13 @@ export function App() {
           </div>
 
           {weather.warnings.map((warning) => (
-            <p className="weather-warning" key={warning.code} role="status">
+            <p className="weather-warning" key={warning.code} role="status" aria-live="polite">
               {warning.message}
             </p>
           ))}
 
           {weatherError ? (
-            <p className="weather-warning" role="status">
+            <p className="weather-warning" role="status" aria-live="polite">
               Pembaruan cuaca gagal. Menampilkan data sebelumnya.
             </p>
           ) : null}
@@ -687,7 +722,7 @@ export function App() {
       ) : weatherError ? (
         <section className="weather-card" aria-labelledby="weather-title">
           <h2 id="weather-title">Cuaca saat ini</h2>
-          <p className="weather-warning" role="status">
+          <p className="weather-warning" role="status" aria-live="polite">
             Kondisi cuaca saat ini belum tersedia.
           </p>
         </section>
