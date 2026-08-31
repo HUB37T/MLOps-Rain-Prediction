@@ -35,6 +35,26 @@ rain-risk-mlops/
 - Rahasia disimpan di `.env`, bukan di `configs/` atau source code.
 - Mock predictor dan model produksi memenuhi interface prediksi yang sama.
 
+## Menjalankan Demo dengan Docker
+
+Pastikan Docker Engine dan Docker Compose tersedia, lalu jalankan dari root repository:
+
+```bash
+docker compose up --build
+```
+
+Buka dashboard pada `http://localhost:8080`. Backend API dan dokumentasinya tersedia
+di `http://localhost:8000/docs`. Untuk menghentikan demo:
+
+```bash
+docker compose down
+```
+
+Compose memakai mock predictor dan Open-Meteo untuk Current Weather secara default.
+Pengaturan provider yang didukung dapat diubah melalui `.env`: `OPEN_METEO_BASE_URL`,
+`WEATHER_LATITUDE`, dan `WEATHER_LONGITUDE`. Port host dapat diubah dengan
+`WEB_PORT` dan `API_PORT`.
+
 ## Tahapan berikutnya
 
 1. Scaffold backend FastAPI dan kontrak respons dashboard.
