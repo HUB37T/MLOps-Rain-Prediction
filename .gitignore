@@ -14,6 +14,8 @@ build/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+.ipynb_checkpoints/
 
 # Environment and secrets
 .env
@@ -51,3 +53,5 @@ Thumbs.db
 # Local agent context and workflow
 CONTEXT.md
 docs/opencode-workflow.md
+docs/web-dashboard-mvp-contract.md
+docs/web-dashboard-mvp-spec.md
