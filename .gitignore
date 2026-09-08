@@ -50,8 +50,3 @@ tmp/
 .DS_Store
 Thumbs.db
 
-# Local agent context and workflow
-CONTEXT.md
-docs/opencode-workflow.md
-docs/web-dashboard-mvp-contract.md
-docs/web-dashboard-mvp-spec.md
