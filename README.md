@@ -1,85 +1,181 @@
-# Rain Risk MLOps
+# MLOps Rain Prediction
 
-Repository untuk aplikasi prediksi risiko hujan tiga jam ke depan di Kota Malang.
-Repository ini memakai satu struktur untuk web UI, backend FastAPI, pipeline data,
-training model, deployment, dan monitoring.
+Proyek MLOps untuk memprediksi kemungkinan terjadinya hujan dalam tiga jam ke depan di Kota Malang berdasarkan data cuaca.
 
-## Status
+Sistem dirancang sebagai alat bantu pengambilan keputusan untuk kegiatan luar ruangan. Hasil prediksi bersifat eksperimental dan bukan peringatan cuaca resmi.
 
-Tahap saat ini adalah penyusunan fondasi repository. Frontend dan backend akan
-dikembangkan menggunakan kontrak data yang sama. Sebelum model ML tersedia,
-backend akan memakai mock predictor yang nantinya dapat diganti dengan adapter
-model produksi tanpa mengubah frontend.
+## Tujuan Proyek
 
-## Struktur
+Proyek ini bertujuan untuk:
+
+1. Mengembangkan model machine learning untuk mengklasifikasikan kondisi `Hujan` atau `Tidak hujan` dalam horizon tiga jam ke depan.
+2. Menggunakan data cuaca seperti suhu, kelembapan, curah hujan, tekanan udara, tutupan awan, kecepatan angin, dan arah angin.
+3. Menyediakan hasil prediksi melalui backend API dan dashboard web.
+4. Membangun fondasi MLOps yang mencakup pengumpulan data, eksperimen, training, evaluasi, deployment, dan monitoring model.
+5. Menyediakan lingkungan pengembangan yang reproducible menggunakan GitHub Codespaces.
+
+Data cuaca diperoleh dari Open-Meteo. Pada tahap awal, sistem menggunakan mock predictor untuk mendukung pengembangan aplikasi sebelum model machine learning produksi tersedia.
+
+## Struktur Direktori
+
+Repository disusun menggunakan struktur proyek data science dan MLOps agar kode, data, model, konfigurasi, serta eksperimen tersimpan secara terpisah.
 
 ```text
-rain-risk-mlops/
-├── data/                 Data mentah, terproses, dan riwayat prediksi
-├── models/               Artifact model lokal (tidak disimpan langsung di Git)
-├── src/rain_prediction/  Package Python utama
-├── notebooks/            EDA dan eksperimen
-├── tests/                Pengujian unit dan integrasi
-├── docs/                 Dokumentasi arsitektur dan model
-├── configs/              Konfigurasi non-rahasia per environment
-├── frontend/             React, TypeScript, dan Vite
-├── infrastructure/       Docker, reverse proxy, dan monitoring
-└── scripts/              Perintah masuk untuk job operasional
+MLOps-Rain-Prediction/
+├── .devcontainer/          Konfigurasi lingkungan GitHub Codespaces
+├── .github/
+│   └── workflows/          Workflow Continuous Integration
+├── configs/                Konfigurasi development dan production
+├── data/
+│   ├── raw/                Data asli yang belum diproses
+│   ├── processed/          Data yang telah diproses
+│   └── predictions/        Riwayat hasil prediksi
+├── docs/                   Dokumentasi proyek dan arsitektur
+├── frontend/               Dashboard React, TypeScript, dan Vite
+├── infrastructure/         Konfigurasi deployment dan monitoring
+├── models/                 Artifact model machine learning lokal
+├── notebooks/              Notebook EDA dan eksperimen model
+├── scripts/                Script untuk pekerjaan operasional
+├── src/
+│   └── rain_prediction/
+│       ├── api/             Backend FastAPI
+│       ├── evaluation/      Evaluasi performa model
+│       ├── features/        Feature engineering
+│       ├── inference/       Proses inferensi model
+│       ├── ingestion/       Pengambilan data cuaca
+│       ├── monitoring/      Monitoring data dan model
+│       ├── schemas/         Kontrak dan validasi data
+│       └── training/        Training model
+├── tests/                  Pengujian unit dan integrasi
+├── docker-compose.yml      Orkestrasi container aplikasi
+├── pyproject.toml          Konfigurasi proyek dan dependency Python
+└── uv.lock                 Versi dependency Python yang dikunci
 ```
 
-## Prinsip pengembangan
+Data berukuran besar, model hasil training, file environment, dan informasi rahasia tidak disimpan langsung di Git.
 
-- Frontend hanya mengambil data dari backend aplikasi, bukan langsung dari Open-Meteo.
-- Kode produksi berada di `src/`; notebook hanya dipakai untuk eksplorasi.
-- Data besar dan model tidak di-commit langsung ke Git.
-- Rahasia disimpan di `.env`, bukan di `configs/` atau source code.
-- Mock predictor dan model produksi memenuhi interface prediksi yang sama.
+## Menjalankan Proyek dengan GitHub Codespaces
 
-## Menjalankan Demo dengan Docker
+GitHub Codespaces menyediakan lingkungan pengembangan berbasis cloud sehingga proyek dapat dijalankan tanpa memasang seluruh dependency secara manual di komputer lokal.
 
-Pastikan Docker Engine dan Docker Compose tersedia, lalu jalankan dari root repository:
+### Membuat Codespace
+
+1. Buka repository ini di GitHub.
+2. Klik tombol **Code**.
+3. Pilih tab **Codespaces**.
+4. Klik **Create codespace on main**.
+5. Tunggu proses pembuatan container dan `postCreateCommand` selesai.
+
+Konfigurasi `.devcontainer/devcontainer.json` akan menyiapkan:
+
+- Python 3.11;
+- Node.js 22;
+- `uv` sebagai package manager Python;
+- dependency Python untuk backend, EDA, dan testing;
+- dependency frontend;
+- ekstensi Python, Pylance, Jupyter, GitLens, dan Docker.
+
+### Verifikasi Environment
+
+Setelah Codespace selesai dibuat, buka terminal dan jalankan:
+
+```bash
+python --version
+node --version
+uv --version
+```
+
+Versi utama yang diharapkan:
+
+```text
+Python 3.11.x
+Node.js v22.x
+uv 0.11.28
+```
+
+Pastikan dependency utama dapat digunakan:
+
+```bash
+uv run --frozen --extra dev python -c "import pandas, sklearn, fastapi; print('Environment siap')"
+```
+
+Apabila konfigurasi berhasil, terminal akan menampilkan:
+
+```text
+Environment siap
+```
+
+### Menjalankan Pengujian
+
+Jalankan pengujian backend:
+
+```bash
+uv run --frozen --extra dev pytest
+```
+
+Jalankan pengujian dan build frontend:
+
+```bash
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+```
+
+## Menjalankan Aplikasi di Codespaces
+
+### Backend FastAPI
+
+```bash
+uv run uvicorn rain_prediction.api.main:app --host 0.0.0.0 --port 8000
+```
+
+Dokumentasi API tersedia melalui port `8000` pada menu **Ports** di Codespaces.
+
+### Frontend
+
+Buka terminal kedua lalu jalankan:
+
+```bash
+npm --prefix frontend run dev -- --host 0.0.0.0
+```
+
+Dashboard tersedia melalui port `5173` pada menu **Ports**.
+
+### Docker Compose
+
+Sebagai alternatif, seluruh aplikasi dapat dijalankan dengan:
 
 ```bash
 docker compose up --build
 ```
 
-Buka dashboard pada `http://localhost:8080`. Backend API dan dokumentasinya tersedia
-di `http://localhost:8000/docs`. Untuk menghentikan demo:
+Dashboard tersedia melalui port `8080`, sedangkan backend tersedia melalui port `8000`.
+
+Untuk menghentikan aplikasi:
 
 ```bash
 docker compose down
 ```
 
-Compose memakai mock predictor dan Open-Meteo untuk Current Weather secara default.
-Pengaturan provider yang didukung dapat diubah melalui `.env`: `OPEN_METEO_BASE_URL`,
-`WEATHER_LATITUDE`, dan `WEATHER_LONGITUDE`. Port host dapat diubah dengan
-`WEB_PORT` dan `API_PORT`.
+## Alur Pengembangan
 
-## Tahapan berikutnya
+Proyek menggunakan GitHub Flow:
 
-1. Scaffold backend FastAPI dan kontrak respons dashboard.
-2. Tambahkan mock predictor beserta pengujian.
-3. Scaffold frontend React + TypeScript + Vite.
-4. Hubungkan dashboard dengan backend.
-5. Tambahkan adapter Open-Meteo dan penyimpanan riwayat.
-6. Integrasikan model ML dan MLflow pada tahap MLOps berikutnya.
+1. Membuat branch dari `main`.
+2. Melakukan perubahan dan commit dengan pesan yang informatif.
+3. Push branch ke GitHub.
+4. Membuat pull request.
+5. Menunggu seluruh pemeriksaan Continuous Integration berhasil.
+6. Merge pull request ke `main` setelah perubahan tervalidasi.
 
-## Menjalankan dengan GitHub Codespaces
-
-1. Buka repository di GitHub.
-2. Pilih **Code**.
-3. Pilih tab **Codespaces**.
-4. Klik **Create codespace on main**.
-5. Tunggu proses `postCreateCommand` selesai.
-
-Codespaces akan menyiapkan Python 3.11, Node.js 22, dependency Python, dependency frontend, serta ekstensi pengembangan yang dibutuhkan.
-
-### Verifikasi environment
+Contoh pembuatan branch:
 
 ```bash
-python --version
-node --version
-uv run python -c "import pandas, sklearn, fastapi; print('Environment siap')"
-uv run pytest
-npm --prefix frontend test
-npm --prefix frontend run build
+git switch main
+git pull origin main
+git switch -c feat/nama-fitur
+```
+
+## Lisensi
+
+Proyek ini menggunakan MIT License. Ketentuan selengkapnya tersedia pada file `LICENSE`.
