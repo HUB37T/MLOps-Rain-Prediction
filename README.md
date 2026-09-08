@@ -63,3 +63,23 @@ Pengaturan provider yang didukung dapat diubah melalui `.env`: `OPEN_METEO_BASE_
 4. Hubungkan dashboard dengan backend.
 5. Tambahkan adapter Open-Meteo dan penyimpanan riwayat.
 6. Integrasikan model ML dan MLflow pada tahap MLOps berikutnya.
+
+## Menjalankan dengan GitHub Codespaces
+
+1. Buka repository di GitHub.
+2. Pilih **Code**.
+3. Pilih tab **Codespaces**.
+4. Klik **Create codespace on main**.
+5. Tunggu proses `postCreateCommand` selesai.
+
+Codespaces akan menyiapkan Python 3.11, Node.js 22, dependency Python, dependency frontend, serta ekstensi pengembangan yang dibutuhkan.
+
+### Verifikasi environment
+
+```bash
+python --version
+node --version
+uv run python -c "import pandas, sklearn, fastapi; print('Environment siap')"
+uv run pytest
+npm --prefix frontend test
+npm --prefix frontend run build
