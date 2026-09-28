@@ -50,3 +50,14 @@ tmp/
 .DS_Store
 Thumbs.db
 
+# Generated data ingestion files
+data/raw/*
+data/processed/*
+data/quarantine/*
+
+# Keep directory markers and one raw sample for LK
+!data/raw/.gitkeep
+!data/raw/sample/
+!data/raw/sample/**
+!data/processed/.gitkeep
+!data/quarantine/.gitkeep
