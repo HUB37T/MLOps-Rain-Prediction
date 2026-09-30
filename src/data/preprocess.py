@@ -6,12 +6,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import numpy as np
 import pandas as pd
 
 
 PROJECT_TIMEZONE = "Asia/Jakarta"
 RAW_SCHEMA_VERSION = "weather-hourly-v1"
 PROCESSED_SCHEMA_VERSION = "weather-clean-v2"
+FEATURE_SCHEMA_VERSION = "weather-rain-3h-features-v2"
+
+# Kontrak proyek: hujan jika jumlah rain pada tiga interval horizon
+# mencapai sedikitnya 0,1 mm.
+RAIN_TARGET_THRESHOLD_MM = 0.1
+FEATURE_LAGS = (1, 2, 3, 6)
+ROLLING_WINDOWS = (3, 6)
+
+# Nilai rain Open-Meteo bertimestamp di akhir interval satu jamnya.
+# Untuk Prediction Time 14:00 dan horizon [15:00, 18:00), label berasal
+# dari rain bertimestamp 16:00, 17:00, dan 18:00, yaitu t+2, t+3, t+4.
+TARGET_RAIN_OFFSETS = (2, 3, 4)
 
 REQUIRED_COLUMNS = [
     "time",
@@ -404,6 +417,368 @@ def clean_data(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return valid_data, quarantine_data
 
 
+def _add_gap_safe_segment_id(frame: pd.DataFrame) -> pd.DataFrame:
+    """Assign a segment ID that restarts after every non-hourly gap."""
+    segmented = frame.sort_values(
+        by=["location_id", "event_time_utc"],
+        kind="stable",
+    ).copy()
+
+    time_differences = segmented.groupby(
+        "location_id",
+        sort=False,
+    )["event_time_utc"].diff()
+    starts_new_segment = (
+        time_differences.isna()
+        | time_differences.ne(pd.Timedelta(hours=1))
+    )
+
+    segmented["_segment_id"] = (
+        starts_new_segment.groupby(
+            segmented["location_id"],
+            sort=False,
+        )
+        .cumsum()
+        .astype("int64")
+    )
+    segmented["_segment_position"] = (
+        segmented.groupby(
+            ["location_id", "_segment_id"],
+            sort=False,
+        )
+        .cumcount()
+        .astype("int64")
+    )
+    return segmented
+
+
+def _group_shift(
+    frame: pd.DataFrame,
+    column: str,
+    periods: int,
+) -> pd.Series:
+    return frame.groupby(
+        ["location_id", "_segment_id"],
+        sort=False,
+    )[column].shift(periods)
+
+
+def _group_rolling(
+    frame: pd.DataFrame,
+    column: str,
+    window: int,
+    aggregation: str,
+) -> pd.Series:
+    grouped = frame.groupby(
+        ["location_id", "_segment_id"],
+        sort=False,
+    )[column]
+
+    if aggregation == "mean":
+        return grouped.transform(
+            lambda series: series.rolling(
+                window,
+                min_periods=window,
+            ).mean()
+        )
+    if aggregation == "sum":
+        return grouped.transform(
+            lambda series: series.rolling(
+                window,
+                min_periods=window,
+            ).sum()
+        )
+    if aggregation == "max":
+        return grouped.transform(
+            lambda series: series.rolling(
+                window,
+                min_periods=window,
+            ).max()
+        )
+    if aggregation == "std":
+        return grouped.transform(
+            lambda series: series.rolling(
+                window,
+                min_periods=window,
+            ).std()
+        )
+
+    raise ValueError(f"Agregasi rolling tidak didukung: {aggregation!r}")
+
+
+def get_model_feature_columns() -> list[str]:
+    """Return the explicit whitelist of columns safe to use as model input."""
+    columns = [
+        "temperature_2m",
+        "relative_humidity_2m",
+        "precipitation",
+        "rain",
+        "cloud_cover",
+        "wind_speed_10m",
+        "pressure_msl",
+    ]
+
+    lag_columns = (
+        "temperature_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "cloud_cover",
+        "rain",
+    )
+    columns.extend(
+        f"{column}_lag_{lag}h"
+        for column in lag_columns
+        for lag in FEATURE_LAGS
+    )
+
+    trend_columns = (
+        "temperature_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "cloud_cover",
+    )
+    columns.extend(
+        f"{column}_change_{lag}h"
+        for column in trend_columns
+        for lag in (1, 3)
+    )
+
+    rolling_mean_columns = (
+        "temperature_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "cloud_cover",
+    )
+    columns.extend(
+        f"{column}_mean_{window}h"
+        for column in rolling_mean_columns
+        for window in ROLLING_WINDOWS
+    )
+    columns.extend(
+        [
+            "relative_humidity_2m_max_3h",
+            "cloud_cover_max_3h",
+            "pressure_msl_std_3h",
+            "rain_sum_3h",
+            "rain_sum_6h",
+            "was_raining_1h_ago",
+            "rain_hours_3h",
+            "dew_point_2m",
+            "temperature_dewpoint_spread",
+            "wind_direction_sin",
+            "wind_direction_cos",
+            "wind_u_10m",
+            "wind_v_10m",
+            "hour_sin",
+            "hour_cos",
+            "day_of_year_sin",
+            "day_of_year_cos",
+        ]
+    )
+    return columns
+
+
+def build_rain_features(
+    frame: pd.DataFrame,
+    rain_threshold_mm: float = RAIN_TARGET_THRESHOLD_MM,
+) -> pd.DataFrame:
+    """Build leakage-safe features and the three-hour cumulative-rain label."""
+    if frame.empty:
+        return frame.copy()
+    if rain_threshold_mm < 0:
+        raise ValueError("rain_threshold_mm tidak boleh negatif.")
+
+    featured = _add_gap_safe_segment_id(frame)
+
+    lag_columns = (
+        "temperature_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "cloud_cover",
+        "rain",
+    )
+    for column in lag_columns:
+        for lag in FEATURE_LAGS:
+            featured[f"{column}_lag_{lag}h"] = _group_shift(
+                featured,
+                column,
+                lag,
+            )
+
+    trend_columns = (
+        "temperature_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "cloud_cover",
+    )
+    for column in trend_columns:
+        for lag in (1, 3):
+            featured[f"{column}_change_{lag}h"] = (
+                featured[column]
+                - _group_shift(featured, column, lag)
+            )
+
+    rolling_mean_columns = (
+        "temperature_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "cloud_cover",
+    )
+    for column in rolling_mean_columns:
+        for window in ROLLING_WINDOWS:
+            featured[f"{column}_mean_{window}h"] = _group_rolling(
+                featured,
+                column,
+                window,
+                "mean",
+            )
+
+    featured["relative_humidity_2m_max_3h"] = _group_rolling(
+        featured,
+        "relative_humidity_2m",
+        3,
+        "max",
+    )
+    featured["cloud_cover_max_3h"] = _group_rolling(
+        featured,
+        "cloud_cover",
+        3,
+        "max",
+    )
+    featured["pressure_msl_std_3h"] = _group_rolling(
+        featured,
+        "pressure_msl",
+        3,
+        "std",
+    )
+
+    for window in ROLLING_WINDOWS:
+        featured[f"rain_sum_{window}h"] = _group_rolling(
+            featured,
+            "rain",
+            window,
+            "sum",
+        )
+
+    rain_lag_1h = _group_shift(featured, "rain", 1)
+    was_raining = pd.Series(
+        pd.NA,
+        index=featured.index,
+        dtype="Int8",
+    )
+    history_available = rain_lag_1h.notna()
+    was_raining.loc[history_available] = (
+        rain_lag_1h.loc[history_available] >= rain_threshold_mm
+    ).astype("int8")
+    featured["was_raining_1h_ago"] = was_raining
+
+    featured["_rain_indicator"] = (
+        featured["rain"] >= rain_threshold_mm
+    ).astype("float64")
+    featured["rain_hours_3h"] = _group_rolling(
+        featured,
+        "_rain_indicator",
+        3,
+        "sum",
+    )
+
+    # Dew point dengan pendekatan Magnus.
+    temperature = featured["temperature_2m"].astype("float64")
+    humidity = featured["relative_humidity_2m"].astype("float64")
+    magnus_a = 17.27
+    magnus_b = 237.7
+    valid_humidity = humidity > 0
+
+    alpha = pd.Series(np.nan, index=featured.index, dtype="float64")
+    alpha.loc[valid_humidity] = (
+        (magnus_a * temperature.loc[valid_humidity])
+        / (magnus_b + temperature.loc[valid_humidity])
+        + np.log(humidity.loc[valid_humidity] / 100.0)
+    )
+    featured["dew_point_2m"] = (
+        magnus_b * alpha
+    ) / (magnus_a - alpha)
+    featured["temperature_dewpoint_spread"] = (
+        featured["temperature_2m"] - featured["dew_point_2m"]
+    )
+
+    # Open-Meteo menyatakan arah asal angin secara meteorologis.
+    wind_radians = np.deg2rad(
+        featured["wind_direction_10m"].astype("float64")
+    )
+    featured["wind_direction_sin"] = np.sin(wind_radians)
+    featured["wind_direction_cos"] = np.cos(wind_radians)
+    featured["wind_u_10m"] = (
+        -featured["wind_speed_10m"] * np.sin(wind_radians)
+    )
+    featured["wind_v_10m"] = (
+        -featured["wind_speed_10m"] * np.cos(wind_radians)
+    )
+
+    local_time = featured["event_time_wib"]
+    hour = local_time.dt.hour.astype("float64")
+    day_of_year = local_time.dt.dayofyear.astype("float64")
+    featured["hour_sin"] = np.sin(2.0 * np.pi * hour / 24.0)
+    featured["hour_cos"] = np.cos(2.0 * np.pi * hour / 24.0)
+    featured["day_of_year_sin"] = np.sin(
+        2.0 * np.pi * day_of_year / 365.25
+    )
+    featured["day_of_year_cos"] = np.cos(
+        2.0 * np.pi * day_of_year / 365.25
+    )
+
+    featured["feature_history_complete_6h"] = (
+        featured["_segment_position"] >= max(FEATURE_LAGS)
+    )
+
+    # Label mengikuti horizon proyek. Future rain hanya digunakan di sini,
+    # tidak pernah sebagai feature model.
+    future_rain = pd.concat(
+        [
+            _group_shift(featured, "rain", -offset).rename(
+                f"rain_horizon_hour_{position}"
+            )
+            for position, offset in enumerate(
+                TARGET_RAIN_OFFSETS,
+                start=1,
+            )
+        ],
+        axis=1,
+    )
+    target_available = future_rain.notna().all(axis=1)
+    future_rain_sum = future_rain.sum(axis=1, min_count=3)
+
+    target = pd.Series(pd.NA, index=featured.index, dtype="Int8")
+    target.loc[target_available] = (
+        future_rain_sum.loc[target_available] >= rain_threshold_mm
+    ).astype("int8")
+
+    featured["target_available_next_3h"] = target_available
+    featured["target_rain_amount_next_3h_mm"] = future_rain_sum
+    featured["target_rain_next_3h"] = target
+    featured["rain_target_threshold_mm"] = float(rain_threshold_mm)
+    featured["feature_schema_version"] = FEATURE_SCHEMA_VERSION
+    model_feature_columns = get_model_feature_columns()
+    missing_model_features = sorted(
+        set(model_feature_columns) - set(featured.columns)
+    )
+    if missing_model_features:
+        raise RuntimeError(
+            f"Fitur model belum terbentuk: {missing_model_features}"
+        )
+
+    featured["training_row_ready"] = (
+        featured["feature_history_complete_6h"]
+        & featured["target_available_next_3h"]
+        & featured[model_feature_columns].notna().all(axis=1)
+    )
+
+    featured = featured.drop(
+        columns=["_segment_id", "_segment_position", "_rain_indicator"]
+    )
+    return featured.reset_index(drop=True)
+
+
 def _write_csv_atomically(frame: pd.DataFrame, output_path: Path) -> None:
     if output_path.exists():
         raise FileExistsError(f"File output sudah ada: {output_path}")
@@ -479,6 +854,15 @@ def parse_arguments() -> argparse.Namespace:
         type=Path,
         default=Path("data/quarantine"),
     )
+    parser.add_argument(
+        "--rain-threshold-mm",
+        type=float,
+        default=RAIN_TARGET_THRESHOLD_MM,
+        help=(
+            "Ambang akumulasi hujan pada horizon tiga jam "
+            f"(default: {RAIN_TARGET_THRESHOLD_MM} mm)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -499,8 +883,12 @@ def main() -> None:
         raise SystemExit("Tidak ada raw file valid yang dapat diproses.")
 
     valid_data, quarantine_data = clean_data(raw_data)
+    feature_data = build_rain_features(
+        valid_data,
+        rain_threshold_mm=arguments.rain_threshold_mm,
+    )
     processed_path, quarantine_path, file_errors_path = save_results(
-        valid_data=valid_data,
+        valid_data=feature_data,
         quarantine_data=quarantine_data,
         file_errors=file_errors,
         processed_directory=arguments.processed_dir,
@@ -509,13 +897,22 @@ def main() -> None:
 
     print("Preprocessing selesai.")
     print(f"Total data valid       : {len(valid_data)}")
+    print(f"Total data berfitur    : {len(feature_data)}")
+    print(
+        "Target 3h tersedia     : "
+        f"{int(feature_data['target_available_next_3h'].sum())}"
+    )
+    print(
+        "Baris siap training    : "
+        f"{int(feature_data['training_row_ready'].sum())}"
+    )
     print(f"Total data quarantine  : {len(quarantine_data)}")
     print(f"Total raw file bermasalah: {len(file_errors)}")
     print(f"Processed file         : {processed_path or '-'}")
     print(f"Quarantine file        : {quarantine_path or '-'}")
     print(f"File error manifest    : {file_errors_path or '-'}")
 
-    if valid_data.empty:
+    if feature_data.empty:
         raise SystemExit("Tidak ada baris valid yang aman digunakan.")
 
 
