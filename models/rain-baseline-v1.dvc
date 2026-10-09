@@ -1,0 +1,6 @@
+outs:
+- md5: 32c15ad3f81f0e374f61ced90d68b9c4.dir
+  size: 9445
+  nfiles: 3
+  hash: md5
+  path: rain-baseline-v1
