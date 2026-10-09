@@ -693,9 +693,9 @@ export function App() {
       <LiveAnnouncements polite={politeAnnouncement} assertive={assertiveAnnouncement} />
       <header className="page-header">
         <p className="eyebrow">Rain Risk Prediction</p>
-        <h1>Persiapan kegiatan</h1>
-        <p className="disclaimer">
-          Prediksi eksperimental untuk membantu persiapan kegiatan, bukan peringatan cuaca resmi.
+        <h1>Prediksi Risiko Hujan</h1>
+        <p>
+          Perkiraan peluang hujan tiga jam ke depan untuk membantu perencanaan kegiatan di FILKOM UB. Hasil ini bersifat eksperimental dan bukan peringatan cuaca resmi.
         </p>
       </header>
 
