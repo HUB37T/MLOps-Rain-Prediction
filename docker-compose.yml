@@ -8,15 +8,12 @@ services:
       OPEN_METEO_BASE_URL: ${OPEN_METEO_BASE_URL:-https://api.open-meteo.com/v1}
       WEATHER_LATITUDE: ${WEATHER_LATITUDE:--7.9666}
       WEATHER_LONGITUDE: ${WEATHER_LONGITUDE:-112.6326}
+      RAIN_PREDICTION_DB_PATH: /app/data/predictions/predictions.db
+    volumes:
+      - ./data/predictions:/app/data/predictions
     ports:
       - "${API_PORT:-8000}:8000"
-    healthcheck:
-      test:
-        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=3)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    
 
   frontend:
     image: rain-risk-frontend:demo

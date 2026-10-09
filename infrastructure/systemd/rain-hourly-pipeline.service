@@ -1,0 +1,28 @@
+[Unit]
+Description=Hourly rain ingestion, preprocessing, and inference
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=member
+Group=member
+
+WorkingDirectory=/home/member/MLOps-Rain-Prediction
+
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/home/member/MLOps-Rain-Prediction/src
+Environment=RAIN_MODEL_DIR=/home/member/MLOps-Rain-Prediction/models/rain-baseline-v1
+Environment=RAIN_PREDICTION_DB_PATH=/home/member/MLOps-Rain-Prediction/data/predictions/predictions.db
+
+ExecStart=/home/member/MLOps-Rain-Prediction/.venv/bin/python src/data/ingest_data.py
+
+ExecStart=/home/member/MLOps-Rain-Prediction/.venv/bin/python src/data/preprocess.py --raw-dir data/raw/open_meteo --processed-dir data/processed --quarantine-dir data/quarantine
+
+ExecStart=/home/member/MLOps-Rain-Prediction/.venv/bin/python -m rain_prediction.inference.job --model-dir models/rain-baseline-v1 --processed-dir data/processed --database-path data/predictions/predictions.db
+
+TimeoutStartSec=8min
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

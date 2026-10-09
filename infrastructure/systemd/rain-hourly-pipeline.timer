@@ -1,0 +1,10 @@
+[Unit]
+Description=Run rain prediction pipeline every hour
+
+[Timer]
+OnCalendar=*-*-* *:02:00
+AccuracySec=10s
+Unit=rain-hourly-pipeline.service
+
+[Install]
+WantedBy=timers.target
