@@ -61,3 +61,10 @@ data/quarantine/*
 !data/raw/sample/**
 !data/processed/.gitkeep
 !data/quarantine/.gitkeep
+
+
+# Allow DVC metadata for the raw Open-Meteo dataset
+!data/raw/.gitignore
+!data/raw/*.dvc
+!data/raw/open_meteo/
+!data/raw/open_meteo/**
