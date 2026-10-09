@@ -1,8 +1,11 @@
 from __future__ import annotations
-
+import os
+from pathlib import Path
 from datetime import UTC, datetime
 from typing import Protocol
-
+from rain_prediction.inference.repository import (
+    SQLitePredictionRepository,
+)
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -83,9 +86,28 @@ def create_app(
     current_clock = clock or SystemClock()
     current_predictor = predictor or MockPredictor()
     current_weather_provider = weather_provider or OpenMeteoWeatherProvider()
-    current_prediction_repository = prediction_repository or MockPredictionRepository(
-        current_clock, current_predictor
-    )
+    if prediction_repository is not None:
+        current_prediction_repository = (
+            prediction_repository
+        )
+    else:
+        database_path = os.getenv(
+            "RAIN_PREDICTION_DB_PATH"
+        )
+
+        if database_path:
+            current_prediction_repository = (
+                SQLitePredictionRepository(
+                    Path(database_path)
+                )
+            )
+        else:
+            current_prediction_repository = (
+                MockPredictionRepository(
+                    current_clock,
+                    current_predictor,
+                )
+            )
 
     @app.get("/api/v1/predictions/current")
     def get_current_prediction() -> dict[str, object]:
