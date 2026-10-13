@@ -1,6 +1,7 @@
 services:
   backend:
     image: rain-risk-backend:demo
+    restart: unless-stopped
     build:
       context: .
       dockerfile: infrastructure/docker/backend.Dockerfile
@@ -13,10 +14,24 @@ services:
       - ./data/predictions:/app/data/predictions
     ports:
       - "${API_PORT:-8000}:8000"
-    
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8000/docs',
+          timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   frontend:
     image: rain-risk-frontend:demo
+    restart: unless-stopped
     build:
       context: .
       dockerfile: infrastructure/docker/frontend.Dockerfile
