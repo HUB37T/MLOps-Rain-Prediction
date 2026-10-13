@@ -694,8 +694,8 @@ export function App() {
       <header className="page-header">
         <p className="eyebrow">Rain Risk Prediction</p>
         <h1>Prediksi Risiko Hujan</h1>
-        <p>
-          Perkiraan peluang hujan tiga jam ke depan untuk membantu perencanaan kegiatan di FILKOM UB. Hasil ini bersifat eksperimental dan bukan peringatan cuaca resmi.
+        <p className="disclaimer">
+          Perkiraan peluang hujan tiga jam ke depan untuk membantu perencanaan kegiatan di FILKOM UB.
         </p>
       </header>
 
