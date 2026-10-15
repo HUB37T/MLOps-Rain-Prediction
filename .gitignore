@@ -60,3 +60,6 @@ data/quarantine/*
 
 !models/.gitignore
 !models/*.dvc
+
+data/mlflow/*
+!data/mlflow/.gitkeep
