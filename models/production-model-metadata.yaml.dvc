@@ -1,0 +1,6 @@
+outs:
+- md5: 1f4da37ca77a149b0ef768a7ec66df9a
+  size: 1072
+  isexec: true
+  hash: md5
+  path: production-model-metadata.yaml

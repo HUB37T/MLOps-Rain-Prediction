@@ -426,6 +426,42 @@ Data baru tersebut nantinya dapat digunakan untuk:
 
 Implementasi retraining otomatis dan monitoring model akan dilakukan pada tahap pengembangan MLOps berikutnya.
 
+## Model Registry dan Model Aktif
+
+Eksperimen dan siklus hidup model dikelola menggunakan MLflow
+Model Registry. Registered model yang digunakan adalah
+`rain-risk-classifier`.
+
+Model yang aktif untuk simulasi inference memiliki konfigurasi:
+
+- Registry version: `2`
+- Stage: `Production`
+- Alias: `champion`
+- Run ID: `ae0a53c91f30442a8d5d178f79baa3d7`
+- Model URI: `models:/rain-risk-classifier/Production`
+- Feature schema: `weather-rain-3h-features-v2`
+- Jumlah fitur: 60
+- Status verifikasi inference: `passed`
+
+Model dipilih berdasarkan performa pada data validation, dengan
+PR-AUC sebagai metrik utama dan F1-score sebagai metrik pendukung.
+Data test hanya digunakan sebagai evaluasi akhir setelah konfigurasi
+model dipilih.
+
+Referensi model Production dan silsilah dataset disimpan dalam
+`models/production-model-metadata.yaml.dvc`. Metadata tersebut
+menghubungkan versi model MLflow dengan hash dataset yang dilacak
+melalui `data/raw/open_meteo_history.dvc`.
+
+Model dapat dimuat secara programatik menggunakan:
+
+```python
+import mlflow
+
+model = mlflow.pyfunc.load_model(
+    "models:/rain-risk-classifier/Production"
+)
+
 ## Catatan Penggunaan
 
 - Jangan menyimpan API key, password, atau informasi rahasia di repository.
@@ -437,3 +473,4 @@ Implementasi retraining otomatis dan monitoring model akan dilakukan pada tahap 
 ## Lisensi
 
 Proyek ini menggunakan MIT License. Ketentuan lengkap tersedia pada file `LICENSE`.
+
