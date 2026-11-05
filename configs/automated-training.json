@@ -1,7 +1,7 @@
 {
   "model": "random_forest",
   "class_weight": "balanced",
-  "n_estimators": 500,
+  "n_estimators": 550,
   "max_depth": 10,
   "min_samples_leaf": 2,
   "max_features": "sqrt",

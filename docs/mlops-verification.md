@@ -40,6 +40,11 @@ filesystem remote DVC read-only dan registry SQLite persisten. Tidak ada
 persyaratan Actions variables, secrets atau akun layanan lain. Dataset awal
 sudah dipush ke remote lokal; runner sekali pakai terdaftar dengan label rain-lk08.
 
-URL run otomatis yang sukses dan hasil simulasi dicatat setelah eksekusi
-selesai. Draft PR saja tidak dianggap sebagai bukti sukses. Panduan menjalankan
-runner serta daftar screenshot ada di docs/mlops-automation.md.
+Run otomatis pertama tanpa layanan tambahan sukses sampai Staging:
+https://github.com/HUB37T/MLOps-Rain-Prediction/actions/runs/42054681541
+
+Seluruh step tercatat sukses: pytest, DVC pull, preprocessing, training,
+evaluation + inference smoke test, registrasi Staging dan upload audit artifact.
+Berikutnya perubahan n_estimators 500 -> 550 digunakan sebagai simulasi trigger.
+Runner controller menyediakan container baru otomatis untuk run berikutnya.
+Panduan menjalankan runner dan daftar screenshot ada di docs/mlops-automation.md.
