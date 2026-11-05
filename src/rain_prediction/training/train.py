@@ -10,9 +10,6 @@ from pathlib import Path
 from typing import Any
 from importlib.metadata import version
 
-from lightgbm import LGBMClassifier
-from xgboost import XGBClassifier
-
 import joblib
 import mlflow
 import mlflow.sklearn
@@ -459,6 +456,8 @@ def create_model(arguments: argparse.Namespace) -> Any:
         )
         
     if arguments.model == "xgboost":
+        from xgboost import XGBClassifier
+
         return XGBClassifier(
             objective="binary:logistic",
             eval_metric="logloss",
@@ -484,6 +483,8 @@ def create_model(arguments: argparse.Namespace) -> Any:
         )
 
     if arguments.model == "lightgbm":
+        from lightgbm import LGBMClassifier
+
         return LGBMClassifier(
             objective="binary",
             boosting_type="gbdt",

@@ -5,6 +5,8 @@
 GitHub Actions mengatur test -> DVC pull -> preprocessing -> train.py -> validasi
 metrik dan smoke test -> registrasi Staging. Test memakai ubuntu-latest;
 training memakai runner resmi dalam container Docker di WSL laptop.
+Dependency CPU untuk workflow memakai extra `ci`; extra `dev` tetap menyediakan
+XGBoost/LightGBM untuk eksperimen lain. Kedua library diimport hanya saat dipilih.
 Tidak diperlukan VM, layanan cloud lain, Actions secrets atau variables.
 Laptop, WSL dan Docker harus menyala; runner offline membuat job Queued.
 
@@ -24,7 +26,12 @@ Dari terminal Windows pada root repository:
 
 ```powershell
 python scripts/local_actions_runner.py prepare
-python scripts/local_actions_runner.py start
+python scripts/local_actions_runner.py serve
+```
+
+Biarkan terminal serve menyala. Pada terminal lain:
+
+```powershell
 python scripts/local_actions_runner.py status
 ```
 
@@ -34,8 +41,9 @@ remote khusus tanpa mengubah konfigurasi checkout pengguna.
 
 start mengambil registration token satu jam lewat GitHub API dan memberikannya
 lewat stdin. Runner berlabel self-hosted, Linux, X64, rain-lk08 bersifat ephemeral:
-otomatis unregister dan berhenti setelah satu training job. Jalankan start lagi
-untuk job berikutnya. Jika container masih aktif, tunggu job selesai.
+otomatis unregister dan berhenti setelah satu training job. serve menyediakan
+container baru otomatis setelah job selesai, sehingga commit berikutnya tidak
+memerlukan start manual. start tersedia untuk pengujian satu job saja.
 
 ## Penyimpanan dan akses
 
@@ -77,14 +85,14 @@ lalu commit pointer. Trainer tetap memerlukan tiga annual holdout.
 
 ## Simulasi dan screenshot tugas
 
-1. Jalankan start dan push perubahan branch PR. Screenshot pemicu otomatis dan SHA.
+1. Pastikan serve aktif dan push branch PR. Screenshot pemicu otomatis dan SHA.
 2. Screenshot pytest, DVC pull, preprocessing dan training yang sukses.
 3. Screenshot MODEL VALIDATION PASSED dan log registrasi stage Staging.
 4. Screenshot versi baru rain-risk-classifier-ci pada MLflow UI localhost:5002.
 5. Ubah n_estimators 500 -> 550 dalam configs/automated-training.json, commit,
-   jalankan start dan push. Ini bukti perubahan kode memicu seluruh alur.
+   lalu push. Ini bukti perubahan kode memicu seluruh alur.
 6. Simpan URL run sukses dan download artifact evaluasi (retensi 30 hari).
-7. Setelah review boleh merge; jalankan start lagi untuk workflow push main.
+7. Setelah review boleh merge; serve menyiapkan runner untuk workflow push main.
 
 Kumpulkan YAML, URL/log sukses dan PDF refleksi. Source PDF ada pada
 docs/lk08-refleksi.md dan generator scripts/build_lk08_reflection.py.

@@ -4210,6 +4210,11 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+ci = [
+    { name = "dvc" },
+    { name = "mlflow" },
+    { name = "pytest" },
+]
 dev = [
     { name = "dvc" },
     { name = "ipykernel" },
@@ -4223,6 +4228,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dvc", marker = "extra == 'ci'", specifier = ">=3.67.1" },
     { name = "dvc", marker = "extra == 'dev'", specifier = ">=3.67.1" },
     { name = "fastapi", specifier = ">=0.115,<1.0" },
     { name = "httpx", specifier = ">=0.28,<1.0" },
@@ -4231,14 +4237,16 @@ requires-dist = [
     { name = "jupyterlab", marker = "extra == 'dev'", specifier = ">=4.6.3" },
     { name = "lightgbm", marker = "extra == 'dev'", specifier = "==4.7.0" },
     { name = "matplotlib", marker = "extra == 'dev'", specifier = ">=3.11.1" },
+    { name = "mlflow", marker = "extra == 'ci'", specifier = "==3.17.0" },
     { name = "mlflow", marker = "extra == 'dev'", specifier = "==3.17.0" },
     { name = "pandas", specifier = ">=3.0.5" },
+    { name = "pytest", marker = "extra == 'ci'", specifier = ">=9.1.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1" },
     { name = "scikit-learn", specifier = ">=1.9.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1.0" },
     { name = "xgboost", marker = "extra == 'dev'", specifier = "==3.0.5" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["ci", "dev"]
 
 [[package]]
 name = "referencing"

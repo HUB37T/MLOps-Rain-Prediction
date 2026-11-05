@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
 import urllib.request
 
 
@@ -46,7 +47,8 @@ def api(path, post=False):
         method="POST" if post else "GET",
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)
+        raw = response.read()
+        return json.loads(raw) if raw else {}
 
 
 def mounts():
@@ -98,9 +100,25 @@ def show_ui():
     print("MLflow CI UI: http://127.0.0.1:5002")
 
 
+def serve():
+    """Keep providing fresh single-job containers without per-commit manual starts."""
+    print(f"Runner controller PID {os.getpid()}; keep this process running.", flush=True)
+    while True:
+        try:
+            current = docker("ps", "-q", "--filter", "name=^/" + CONTAINER + "$",
+                             capture_output=True, text=True).stdout.strip()
+            if not current:
+                start()
+            docker("wait", CONTAINER)
+            print("Job container finished; preparing the next runner.", flush=True)
+        except Exception as exc:
+            print(f"Runner controller retry: {type(exc).__name__}", flush=True)
+            time.sleep(20)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["prepare", "start", "status", "ui"])
+    parser.add_argument("command", choices=["prepare", "start", "serve", "status", "ui"])
     args = parser.parse_args()
     if args.command == "prepare":
         prepare()
@@ -108,6 +126,8 @@ def main():
         start()
     elif args.command == "ui":
         show_ui()
+    elif args.command == "serve":
+        serve()
     else:
         print(json.dumps([{k: r[k] for k in ("name", "status", "busy")}
                           for r in api("actions/runners")["runners"]], indent=2))
