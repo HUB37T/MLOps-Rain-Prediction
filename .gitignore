@@ -36,6 +36,7 @@ models/*
 # ML and experiment artifacts
 mlruns/
 artifacts/
+output/
 .dvc/cache/
 
 # Runtime and logs

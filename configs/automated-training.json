@@ -1,0 +1,12 @@
+{
+  "model": "random_forest",
+  "class_weight": "balanced",
+  "n_estimators": 500,
+  "max_depth": 10,
+  "min_samples_leaf": 2,
+  "max_features": "sqrt",
+  "random_state": 42,
+  "minimum_validation_pr_auc": 0.90,
+  "minimum_validation_f1": 0.82,
+  "threshold_basis": "Proposed LK-08 policy based on LK-06 champion; confirm against LK-01 before adoption."
+}

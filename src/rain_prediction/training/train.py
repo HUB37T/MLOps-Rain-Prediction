@@ -73,6 +73,8 @@ def parse_arguments() -> argparse.Namespace:
         required=True,
         help="Nama run yang ditampilkan pada MLflow.",
     )
+    parser.add_argument("--run-output", type=Path, default=None,
+                        help="Write exact run/model references for automation.")
     parser.add_argument(
         "--processed-dir",
         type=Path,
@@ -943,7 +945,7 @@ def main() -> None:
             ),
         }
 
-        mlflow.sklearn.log_model(
+        model_info = mlflow.sklearn.log_model(
             sk_model=final_model,
             name="model",
             signature=signature,
@@ -1086,6 +1088,16 @@ def main() -> None:
             f"Experiment         : "
             f"{arguments.experiment_name}"
         )
+
+    # Write only after the run has completed successfully. Never infer a run
+    # from its name: parallel workflows can use the same experiment.
+    if arguments.run_output is not None:
+        arguments.run_output.parent.mkdir(parents=True, exist_ok=True)
+        arguments.run_output.write_text(json.dumps({
+            "run_id": active_run.info.run_id,
+            "model_uri": model_info.model_uri,
+            "processed_file_sha256": processed_sha256,
+        }, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

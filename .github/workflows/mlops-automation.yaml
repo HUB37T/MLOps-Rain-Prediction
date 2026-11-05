@@ -1,0 +1,126 @@
+name: MLOps Code as Trigger
+
+on:
+  push:
+    branches: [main]
+    paths: &ml_paths
+      - 'src/**'
+      - 'tests/**'
+      - 'configs/automated-training.json'
+      - 'data/**/*.dvc'
+      - '.dvc/config'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/mlops-automation.yaml'
+  pull_request:
+    branches: [main]
+    paths: *ml_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mlops-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Automated testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies
+        run: |
+          python -m pip install uv==0.11.28
+          uv sync --frozen --extra dev
+      - name: Pytest
+        run: uv run --frozen --extra dev pytest
+
+  training:
+    name: Training, evaluation and Staging
+    needs: test
+    # Fork contributions get tests only; never run untrusted code with credentials.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: src
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.DAGSHUB_TOKEN }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.DAGSHUB_TOKEN }}
+      AWS_EC2_METADATA_DISABLED: 'true'
+      DVC_REMOTE_URL: ${{ vars.DVC_REMOTE_URL }}
+      DVC_ENDPOINT_URL: ${{ vars.DVC_ENDPOINT_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies
+        run: |
+          python -m pip install uv==0.11.28
+          uv sync --frozen --extra dev
+      - name: Check external services configuration
+        shell: bash
+        run: |
+          for key in MLFLOW_TRACKING_URI MLFLOW_TRACKING_USERNAME MLFLOW_TRACKING_PASSWORD DVC_REMOTE_URL DVC_ENDPOINT_URL; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing ${key}; follow docs/mlops-automation.md"
+              exit 1
+            fi
+          done
+          mkdir -p artifacts/automation
+      - name: Pull exact DVC dataset for this commit
+        run: |
+          uv run --frozen --extra dev dvc remote add --local ci "$DVC_REMOTE_URL"
+          uv run --frozen --extra dev dvc remote modify --local ci endpointurl "$DVC_ENDPOINT_URL"
+          uv run --frozen --extra dev dvc pull -r ci data/raw/open_meteo_history.dvc
+      - name: Rebuild features from versioned raw data
+        run: |
+          uv run --frozen --extra dev python src/data/preprocess.py \
+            --raw-dir data/raw/open_meteo_history \
+            --processed-dir artifacts/automation/processed \
+            --quarantine-dir artifacts/automation/quarantine
+      - name: Train candidate with versioned hyperparameters
+        run: uv run --frozen --extra dev python -m rain_prediction.training.automated_train
+      - name: Validate metrics and smoke-test inference
+        run: |
+          uv run --frozen --extra dev python -m rain_prediction.training.evaluate_and_register \
+            --run-reference artifacts/automation/run.json \
+            --tracking-uri "$MLFLOW_TRACKING_URI" --source-commit "$GITHUB_SHA"
+      - name: Register accepted main model as Staging
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          uv run --frozen --extra dev python -m rain_prediction.training.evaluate_and_register \
+            --run-reference artifacts/automation/run.json \
+            --tracking-uri "$MLFLOW_TRACKING_URI" --source-commit "$GITHUB_SHA" \
+            --model-name rain-risk-classifier-ci --register
+      - name: Publish evaluation summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f artifacts/automation/evaluation.json ]; then
+            echo '### Model evaluation' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat artifacts/automation/evaluation.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlops-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/automation/run.json
+            artifacts/automation/evaluation.json
+            data/raw/open_meteo_history.dvc
+            configs/automated-training.json
+          if-no-files-found: warn
+          retention-days: 30
