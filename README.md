@@ -461,6 +461,37 @@ import mlflow
 model = mlflow.pyfunc.load_model(
     "models:/rain-risk-classifier/Production"
 )
+```
+
+## Otomatisasi Code as a Trigger (LK-08)
+
+Workflow `.github/workflows/mlops-automation.yaml` merangkai pytest, DVC pull,
+preprocessing ulang, training, validasi metrik, smoke test inference, dan
+registrasi kandidat sebagai **Staging**. Dependency mengikuti `uv.lock`; input
+data mengikuti pointer DVC pada commit yang diuji. Training tidak mengambil
+file processed lama atau mengunduh data API tanpa versioning.
+
+Kandidat yang lolos pada PR pemilik repository maupun push `main` otomatis
+didaftarkan sebagai Staging di `rain-risk-classifier-ci`. Workflow tidak mengubah
+Production/champion. Kontribusi fork hanya menjalankan test di runner GitHub.
+
+Hyperparameter dan ambang evaluasi disimpan di `configs/automated-training.json`.
+Ambang PR-AUC 0,90 dan F1 0,82 adalah usulan berdasarkan LK-06, dan perlu
+dicocokkan dengan persyaratan LK-01 sebelum menerima perubahan.
+
+Training memakai runner GitHub Actions dalam container Docker di WSL laptop.
+DVC remote berupa filesystem lokal dan MLflow memakai SQLite dengan volume
+permanen. Tidak diperlukan layanan cloud tambahan atau Actions secrets/variables.
+Laptop dan runner harus online. Setup runner, cara simulasi perubahan, serta
+daftar screenshot ada di [panduan otomatisasi](docs/mlops-automation.md).
+Verifikasi lokal tanpa VM dapat dijalankan melalui:
+
+```bash
+UV_BIN=/home/attacker/.local/bin/uv bash scripts/verify_mlops_automation.sh
+```
+
+Hasil tersimpan di direktori audit baru pada `artifacts/`. Bukti lokal ini tetap
+harus dilengkapi URL GitHub Actions yang selesai sampai registrasi Staging.
 
 ## Catatan Penggunaan
 

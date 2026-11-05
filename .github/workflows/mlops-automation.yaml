@@ -1,0 +1,113 @@
+name: MLOps Code as Trigger
+
+on:
+  push:
+    branches: [main]
+    paths: &ml_paths
+      - 'src/**'
+      - 'tests/**'
+      - 'configs/automated-training.json'
+      - 'data/**/*.dvc'
+      - '.dvc/config'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/mlops-automation.yaml'
+      - 'infrastructure/docker/actions-runner.Dockerfile'
+  pull_request:
+    branches: [main]
+    paths: *ml_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mlops-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Automated testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies
+        run: |
+          python -m pip install uv==0.11.28
+          uv sync --frozen --extra ci
+      - name: Pytest
+        run: uv run --frozen --extra ci pytest
+
+  training:
+    name: Training, evaluation and Staging
+    needs: test
+    # Only the repository owner's same-repo PR uses the isolated local runner.
+    if: github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == github.repository_owner)
+    runs-on: [self-hosted, Linux, X64, rain-lk08]
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: src
+      MLFLOW_TRACKING_URI: sqlite:////mlops-state/registry/mlflow.db
+      UV_CACHE_DIR: /mlops-state/uv-cache
+      UV_LINK_MODE: copy
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install locked dependencies
+        run: |
+          python --version
+          uv --version
+          uv sync --frozen --extra ci
+      - name: Prepare persistent local MLflow Registry
+        run: |
+          uv run --frozen --extra ci python -m rain_prediction.training.prepare_local_registry
+      - name: Pull exact DVC dataset for this commit
+        run: |
+          uv run --frozen --extra ci dvc remote add --local ci /dvc-remote
+          uv run --frozen --extra ci dvc pull -r ci data/raw/open_meteo_history.dvc
+      - name: Rebuild features from versioned raw data
+        run: |
+          uv run --frozen --extra ci python src/data/preprocess.py \
+            --raw-dir data/raw/open_meteo_history \
+            --processed-dir artifacts/automation/processed \
+            --quarantine-dir artifacts/automation/quarantine
+      - name: Train candidate with versioned hyperparameters
+        run: uv run --frozen --extra ci python -m rain_prediction.training.automated_train
+      - name: Validate metrics and smoke-test inference
+        run: |
+          uv run --frozen --extra ci python -m rain_prediction.training.evaluate_and_register \
+            --run-reference artifacts/automation/run.json \
+            --tracking-uri "$MLFLOW_TRACKING_URI" --source-commit "$GITHUB_SHA"
+      - name: Register accepted candidate as Staging
+        run: |
+          uv run --frozen --extra ci python -m rain_prediction.training.evaluate_and_register \
+            --run-reference artifacts/automation/run.json \
+            --tracking-uri "$MLFLOW_TRACKING_URI" --source-commit "$GITHUB_SHA" \
+            --model-name rain-risk-classifier-ci --register
+      - name: Publish evaluation summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f artifacts/automation/evaluation.json ]; then
+            echo '### Model evaluation' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat artifacts/automation/evaluation.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlops-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/automation/run.json
+            artifacts/automation/evaluation.json
+            data/raw/open_meteo_history.dvc
+            configs/automated-training.json
+          if-no-files-found: warn
+          retention-days: 30
