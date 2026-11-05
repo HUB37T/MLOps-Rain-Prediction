@@ -1,6 +1,5 @@
 """Real MLflow 3 logged-model URI -> smoke test -> confirmed Staging."""
 import json
-from pathlib import Path
 
 import mlflow
 import mlflow.sklearn
@@ -28,7 +27,7 @@ def test_accepted_logged_model_can_be_loaded_and_registered(tmp_path):
             info = mlflow.sklearn.log_model(
                 estimator, name="model", input_example=features,
                 signature=infer_signature(features, estimator.predict(features)),
-                pip_requirements=[])
+                serialization_format="cloudpickle", pip_requirements=[])
         reference = {"run_id": run.info.run_id, "model_uri": info.model_uri,
                      "processed_file_sha256": "fixture-digest"}
         report = evaluate(reference,
