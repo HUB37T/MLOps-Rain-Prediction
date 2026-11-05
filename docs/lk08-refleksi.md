@@ -23,13 +23,15 @@ minimal 0,82, mengacu pada hasil champion LK-06. Angka tersebut harus disesuaika
 dengan target pada LK-01 sebelum workflow diterima. Kebijakan ini tidak memakai
 test set untuk memilih kandidat karena hal tersebut dapat membiasakan evaluasi.
 
-Model yang lolos pada push ke main didaftarkan sebagai Staging, bukan langsung
+Model yang lolos pada PR pemilik repository atau push ke main didaftarkan sebagai Staging, bukan langsung
 menjadi champion. Hal ini menjaga batas antara kandidat yang lolos evaluasi
 offline dengan model yang telah disetujui untuk produksi. Model baru tetap
 memerlukan review dan monitoring setelah deployment untuk mendeteksi perubahan
 data dan penurunan performa yang tidak tertangkap oleh holdout historis.
 
 Luaran kode mencatat Run ID, model URI, commit source, hash dataset dan hasil
-evaluasi. Bukti eksekusi GitHub yang nyata dilampirkan secara terpisah setelah
-remote DVC dan endpoint MLflow tersedia. Hasil pengujian lokal tidak menggantikan
-URL workflow otomatis yang diminta tugas.
+evaluasi. GitHub Actions mengatur pekerjaan otomatis, sedangkan training
+dijalankan pada runner Docker di WSL laptop. Dataset diambil dari filesystem
+remote DVC dan registry MLflow disimpan permanen pada volume khusus. Pendekatan
+ini memenuhi alur tugas tanpa layanan tambahan; laptop harus online ketika job
+berjalan. URL workflow otomatis dilampirkan sebagai bukti terpisah.

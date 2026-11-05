@@ -33,13 +33,13 @@ preprocess.log, train.log, run.json, registry.log, evaluation.json dan SQLite.
 Source revision diberi suffix `-working-tree` karena pengujian dilakukan
 sebelum commit. Report tidak dipresentasikan sebagai hasil commit GitHub final.
 
-## Yang masih diperlukan untuk bukti tugas
+## Revisi infrastruktur
 
-Daftar Actions variables dan secrets di GitHub telah dicek dan masih kosong
-pada saat implementasi. Diperlukan remote DVC berisi dataset serta endpoint
-MLflow yang bisa diakses runner. Nama variables dan secrets ada di
-`docs/mlops-automation.md`.
+Workflow sekarang menggunakan runner resmi GitHub dalam container Docker WSL,
+filesystem remote DVC read-only dan registry SQLite persisten. Tidak ada
+persyaratan Actions variables, secrets atau akun layanan lain. Dataset awal
+sudah dipush ke remote lokal; runner sekali pakai terdaftar dengan label rain-lk08.
 
-Setelah konfigurasi tersebut diisi: lakukan simulasi perubahan konfigurasi,
-ambil URL workflow sukses dan screenshot, kemudian lampirkan bersama YAML
-dan PDF refleksi. Draft PR tidak boleh dianggap sebagai bukti eksekusi sukses.
+URL run otomatis yang sukses dan hasil simulasi dicatat setelah eksekusi
+selesai. Draft PR saja tidak dianggap sebagai bukti sukses. Panduan menjalankan
+runner serta daftar screenshot ada di docs/mlops-automation.md.

@@ -1,113 +1,99 @@
-# LK-08: Code as a Trigger
+# LK-08: Code as a Trigger tanpa layanan tambahan
 
-## Alur yang diimplementasikan
+## Alur
 
-Perubahan source, tests, konfigurasi training, pointer DVC, dependency, atau
-workflow memicu `.github/workflows/mlops-automation.yaml` melalui PR ke main
-atau push ke main. Perubahan README saja tidak memicu training.
+GitHub Actions mengatur test -> DVC pull -> preprocessing -> train.py -> validasi
+metrik dan smoke test -> registrasi Staging. Test memakai ubuntu-latest;
+training memakai runner resmi dalam container Docker di WSL laptop.
+Tidak diperlukan VM, layanan cloud lain, Actions secrets atau variables.
+Laptop, WSL dan Docker harus menyala; runner offline membuat job Queued.
 
-1. `test`: menjalankan pytest dengan dependency dari uv.lock.
-2. `training` menunggu test sukses, lalu mengambil dataset tepat sesuai pointer
-   `data/raw/open_meteo_history.dvc` pada commit yang diuji.
-3. Preprocessing membangun ulang fitur di direktori baru milik runner. Dataset
-   lokal atau file processed lama tidak menjadi input tersembunyi.
-4. `automated_train.py` memanggil train.py dengan hyperparameter dari
-   `configs/automated-training.json`. Train.py menulis Run ID, model URI dan
-   SHA-256 processed file sehingga evaluator tidak memilih run terbaru secara acak.
-5. Evaluator memeriksa run FINISHED, validation PR-AUC/F1, kepemilikan model,
-   digest dataset, dan inference model dengan contoh input yang tercatat di MLflow.
-6. Hanya push ke main yang telah lolos yang mendaftarkan model ke
-   `rain-risk-classifier-ci`, stage Staging. PR hanya melatih dan mengevaluasi.
-   Workflow manual juga hanya mengevaluasi. Kontribusi fork mendapat unit test
-   tanpa akses kredensial.
+Kandidat yang lolos pada PR pemilik repository dari repository yang sama,
+push main, atau workflow manual otomatis masuk rain-risk-classifier-ci Staging.
+Registry CI memakai SQLite dan volume permanen; nomor versi bertambah antar-run.
+Registry LK-07 serta Production/champion VM tidak berubah. Fork/pihak lain hanya
+menjalankan test pada runner GitHub, bukan kode training di laptop.
 
-Registry CI sengaja memiliki nama sendiri. Registry Production, alias champion,
-dan model VM tidak diganti oleh workflow. Staging adalah kandidat yang masih
-memerlukan persetujuan sebelum diterapkan. Stage legacy tetap digunakan karena
-diminta tugas; alias saja bukan bukti transisi stage.
+## Setup Windows + WSL
 
-## Kebijakan evaluasi yang perlu direview
+Prasyarat: Docker di WSL aktif, dependency project dan cache DVC tersedia,
+serta akun GitHub login melalui Git Credential Manager dengan hak admin repo.
+Personal access token tidak dicetak, disimpan script, atau diberikan ke runner.
 
-PR-AUC >= 0.90 DAN F1 >= 0.82 pada validation. Angka ini adalah **usulan**
-berdasarkan champion LK-06, bukan klaim bahwa LK-01 memuat angka tersebut.
-Cocokkan dengan dokumen LK-01 sebelum menerima PR. Threshold performa berbeda
-dengan decision threshold probabilitas atau rain threshold 0.1 mm.
-Nilai hilang, NaN, infinity, di luar [0,1], atau threshold tidak valid ditolak.
-Test set tidak digunakan sebagai gate pemilihan hyperparameter.
+Dari terminal Windows pada root repository:
 
-Data "terbaru" berarti versi dataset yang ditunjuk commit Git, bukan mengunduh
-ulang API cuaca setiap workflow. Untuk memperbarui data, jalankan ingestion,
-`dvc add`, `dvc push`, lalu commit pointer. Data minimal harus cukup untuk tiga
-annual holdout sesuai trainer. Ingestion per jam bukan retraining per jam.
-
-## Prasyarat layanan eksternal
-
-Checkout awal belum memiliki DVC remote. Workflow tidak dapat mengambil isi
-dataset hanya dari file .dvc. Localhost laptop juga tidak dapat diakses runner.
-Gunakan DagsHub repository yang kamu miliki (atau endpoint yang kompatibel):
-
-1. Hubungkan GitHub repository melalui akun DagsHub. Salin URL dari menu Remote.
-   Jangan mengasumsikan nama akun DagsHub sama dengan GitHub.
-2. Tambahkan GitHub **Actions variables**:
-   - `MLFLOW_TRACKING_URI`: `https://dagshub.com/USER/REPO.mlflow`
-   - `DVC_REMOTE_URL`: `s3://dvc`
-   - `DVC_ENDPOINT_URL`: `https://dagshub.com/USER/REPO.s3`
-3. Tambahkan GitHub **Actions secrets**:
-   - `DAGSHUB_USERNAME`: username DagsHub sebenarnya.
-   - `DAGSHUB_TOKEN`: token milik akun dengan akses repository tersebut.
-4. Dari WSL, upload dataset sekali. Ambil endpoint aktual dari DagsHub:
-
-```bash
-uv run --frozen --extra dev dvc remote add --local ci s3://dvc
-uv run --frozen --extra dev dvc remote modify --local ci endpointurl https://dagshub.com/USER/REPO.s3
-read -r -s -p 'DagsHub token: ' AWS_ACCESS_KEY_ID
-export AWS_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY="$AWS_ACCESS_KEY_ID"
-uv run --frozen --extra dev dvc push -r ci data/raw/open_meteo_history.dvc
-uv run --frozen --extra dev dvc status -c -r ci data/raw/open_meteo_history.dvc
-unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+```powershell
+python scripts/local_actions_runner.py prepare
+python scripts/local_actions_runner.py start
+python scripts/local_actions_runner.py status
 ```
 
-Token tidak ditulis ke repo. `.dvc/config.local` diabaikan Git. Instalasi memakai
-dvc-s3 yang telah dicatat pada pyproject.toml dan uv.lock. Server MLflow DagsHub
-harus kompatibel dengan client MLflow 3.17.0; cek satu run sebelum merge.
+prepare membangun image Python 3.12 + uv + runner resmi. SHA-256 paket runner
+diverifikasi terhadap GitHub API. Dataset dalam cache dipush ke filesystem
+remote khusus tanpa mengubah konfigurasi checkout pengguna.
 
-## Verifikasi lokal yang terisolasi
+start mengambil registration token satu jam lewat GitHub API dan memberikannya
+lewat stdin. Runner berlabel self-hosted, Linux, X64, rain-lk08 bersifat ephemeral:
+otomatis unregister dan berhenti setelah satu training job. Jalankan start lagi
+untuk job berikutnya. Jika container masih aktif, tunggu job selesai.
+
+## Penyimpanan dan akses
+
+State WSL: /home/attacker/.local/share/rain-mlops-ci/.
+
+- dvc/: filesystem remote, dipasang read-only pada /dvc-remote.
+- registry/: SQLite dan artefak MLflow pada /mlops-state/registry.
+- uv-cache/: cache dependency untuk mempercepat job berikutnya.
+
+Container tanpa privileged, tanpa Docker socket, tanpa mount home atau working
+copy laptop. Checkout memakai token read-only dan persist-credentials false.
+Jangan memperluas filter PR pemilik untuk menjalankan kode yang tidak dipercaya.
+
+## MLflow UI
+
+Setelah run sukses:
+
+```powershell
+python scripts/local_actions_runner.py ui
+```
+
+Buka http://127.0.0.1:5002. UI memakai volume registry yang sama. Hentikan dengan
+`wsl docker stop rain-lk08-mlflow-ui`. Port hanya terikat pada localhost.
+
+## Kebijakan evaluasi
+
+PR-AUC >= 0.90 DAN F1 >= 0.82 pada validation adalah usulan berdasarkan LK-06.
+Cocokkan dengan LK-01 sebelum mengadopsinya. Ini bukan decision threshold
+probabilitas atau rain threshold 0.1 mm. Metrik hilang, NaN, infinity atau di luar
+[0,1] ditolak. Test set dilaporkan, bukan dipakai untuk memilih kandidat.
+
+Evaluator menggunakan Run ID/model URI yang tepat, mencocokkan SHA-256 processed
+data dan pointer DVC yang dilog saat training, serta mencoba inference PyFunc.
+Kegagalan test, DVC, training, evaluasi atau registrasi menghentikan workflow.
+
+Data terbaru berarti versi yang ditunjuk commit, bukan mengunduh API setiap job.
+Untuk dataset baru: ingestion, dvc add, ulangi prepare untuk push cache baru,
+lalu commit pointer. Trainer tetap memerlukan tiga annual holdout.
+
+## Simulasi dan screenshot tugas
+
+1. Jalankan start dan push perubahan branch PR. Screenshot pemicu otomatis dan SHA.
+2. Screenshot pytest, DVC pull, preprocessing dan training yang sukses.
+3. Screenshot MODEL VALIDATION PASSED dan log registrasi stage Staging.
+4. Screenshot versi baru rain-risk-classifier-ci pada MLflow UI localhost:5002.
+5. Ubah n_estimators 500 -> 550 dalam configs/automated-training.json, commit,
+   jalankan start dan push. Ini bukti perubahan kode memicu seluruh alur.
+6. Simpan URL run sukses dan download artifact evaluasi (retensi 30 hari).
+7. Setelah review boleh merge; jalankan start lagi untuk workflow push main.
+
+Kumpulkan YAML, URL/log sukses dan PDF refleksi. Source PDF ada pada
+docs/lk08-refleksi.md dan generator scripts/build_lk08_reflection.py.
+
+## Verifikasi lokal tambahan
 
 ```bash
 UV_BIN=/home/attacker/.local/bin/uv bash scripts/verify_mlops_automation.sh
 ```
 
-Script menguji pytest, push ke filesystem DVC remote sementara, pull dengan cache
-kosong, preprocessing ulang, train.py, evaluation dan Staging. SQLite, cache,
-model dan log pengujian hanya berada di direktori audit baru `artifacts/`.
-Registry LK-07 dan Production tidak diubah. Hasil lokal bukan bukti bahwa GitHub
-Actions telah berhasil; bukti cloud baru diambil setelah variables/secrets siap.
-
-## Review, simulasi dan screenshot
-
-1. Review policy, workflow dan kode. Commit di branch `feat/mlops-code-trigger`.
-2. Push branch dan buat PR ke main setelah layanan siap. Workflow otomatis berjalan.
-   Simpan screenshot PR/check dan log Pytest.
-3. Ubah `n_estimators` pada `configs/automated-training.json` dari 500 ke 550,
-   commit dan push lagi. Ini perubahan kode/konfigurasi yang memicu run baru.
-   Tidak perlu menekan Run workflow untuk membuktikan Code as a Trigger.
-4. Screenshot run otomatis sukses, log DVC pull/preprocessing/training, dan
-   `MODEL VALIDATION PASSED`. Salin URL run, bukan hanya halaman daftar Actions.
-5. Merge PR setelah review. Push ke main memicu training ulang dan registrasi Staging.
-   Screenshot log register, source commit, dan daftar versi Staging di MLflow.
-6. Download artifact `mlops-evaluation-RUN_ID-ATTEMPT`: run.json, evaluation.json,
-   konfigurasi training, dan pointer DVC. Retensi 30 hari; simpan salinan untuk tugas.
-7. Kumpulkan workflow YAML, URL run sukses, serta PDF refleksi dari naskah
-   `docs/lk08-refleksi.md`. Jangan menuliskan URL sukses sebelum run benar-benar ada.
-
-## Kegagalan yang harus terlihat
-
-Konfigurasi kosong, DVC pull gagal, test gagal, run belum selesai, metrik buruk,
-digest berbeda, smoke test gagal dan registry gagal semuanya menghentikan workflow.
-Tidak ada `continue-on-error` pada tahap tersebut. Laporan evaluasi diupload bahkan
-saat evaluasi gagal. Unit tests memastikan gate gagal tidak memanggil registrasi.
-
-Threshold tidak bisa mendeteksi semua silent failure. Model yang lolos holdout
-masih perlu monitoring prediksi dan delayed label setelah deployment. Pipeline ini
-menyaring kandidat; tidak mengklaim bahwa performa produksi akan selalu sama.
+Script menguji alur dengan DVC remote dan registry sementara. Ini bukti tambahan;
+URL GitHub Actions yang selesai sampai Staging tetap diperlukan untuk tugas.
