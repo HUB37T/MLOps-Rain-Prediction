@@ -6,6 +6,10 @@ Ini bukti lokal, bukan klaim keberhasilan GitHub Actions.
 ## Hasil yang sudah diamati
 
 - Full pytest: 48 passed, satu warning deprecation Starlette/httpx dari dependency.
+- Tambahan tes regresi integrasi nyata MLflow 3: 1 passed. Fixture memakai
+  serialisasi cloudpickle yang sama dengan train.py; tes mencakup logging,
+  pengambilan contoh input, inference PyFunc dan konfirmasi stage Staging.
+  Warning SQLAlchemy dan deprecation stage tidak menyebabkan kegagalan.
 - actionlint pada workflow: lulus (shellcheck/pyflakes tidak diaktifkan).
 - YAML parsed; dependency training -> test dan kedua filter paths valid.
 - DVC push: dua cache objects; DVC pull ke cache kosong: dua objects diambil,
