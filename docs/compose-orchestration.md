@@ -75,6 +75,9 @@ docker compose up -d --build --wait --wait-timeout 240
 
 Konfigurasi memakai image MLflow 3.17.0 yang sama dengan stack sebelumnya.
 API/UI dibuild dari source. MLflow sehat lebih dulu, kemudian backend dan frontend.
+Backend memakai dependency inti dari uv.lock melalui uv sync --frozen; dependency
+notebook, training dan GPU tidak dipasang pada image API. Ini mencegah build
+mengambil versi library baru yang berbeda dari pengujian proyek.
 Jika startup gagal, periksa `docker compose logs --tail=100 mlflow backend frontend`;
 jangan menghapus database untuk mengatasi error schema atau permission.
 
