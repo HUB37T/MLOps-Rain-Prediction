@@ -49,7 +49,7 @@ class VerificationControlsTests(unittest.TestCase):
             verify.main()
             calls = [c.args for c in compose.call_args_list]
             self.assertIn(("up", "-d", "--no-build", "--force-recreate", "--wait",
-                           "--wait-timeout", "240"), calls)
+                           "--wait-timeout", "360"), calls)
             self.assertFalse(any("down" in call or "-v" in call for call in calls))
             report = json.loads(next(Path(tmp).rglob("report-*.json")).read_text())
             self.assertEqual(report["persistence"]["status"], "passed")

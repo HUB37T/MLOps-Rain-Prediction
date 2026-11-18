@@ -70,11 +70,14 @@ melalui apt. Jangan menjalankan stack lain dengan port host yang sama.
 ## Jalankan seluruh sistem dengan satu perintah
 
 ```bash
-docker compose up -d --build --wait --wait-timeout 240
+docker compose up -d --build --wait --wait-timeout 360
 ```
 
 Konfigurasi memakai image MLflow 3.17.0 yang sama dengan stack sebelumnya.
 API/UI dibuild dari source. MLflow sehat lebih dulu, kemudian backend dan frontend.
+Healthcheck MLflow membaca metadata eksperimen Default dari database. Ini
+mencegah backend dimulai ketika endpoint /health sudah merespons tetapi
+layanan metadata masih melakukan inisialisasi pada VM dengan RAM terbatas.
 Backend memakai dependency inti dari uv.lock melalui uv sync --frozen; dependency
 notebook, training dan GPU tidak dipasang pada image API. Ini mencegah build
 mengambil versi library baru yang berbeda dari pengujian proyek.

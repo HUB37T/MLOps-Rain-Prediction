@@ -339,7 +339,7 @@ Dashboard dapat dibuka melalui port `5173` pada menu **Ports**.
 Jalankan ketiga layanan sekaligus dari root repository (di VM):
 
 ```bash
-docker compose up -d --build --wait --wait-timeout 240
+docker compose up -d --build --wait --wait-timeout 360
 ```
 
 Dashboard tersedia melalui port `8080`, backend melalui port `8000`, dan MLflow

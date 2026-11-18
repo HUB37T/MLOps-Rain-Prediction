@@ -19,7 +19,7 @@ def compose(*args, capture=False):
     try:
         return subprocess.run(
             ["docker", "compose", *args], cwd=REPO, check=True,
-            capture_output=capture, text=True,
+            capture_output=capture, text=True, stdin=subprocess.DEVNULL,
         )
     except subprocess.CalledProcessError as exc:
         if capture and exc.stderr:
@@ -96,7 +96,7 @@ def main():
             if marker(service, path, key) != key:
                 raise RuntimeError(f"Could not create verification marker: {path}")
         print("Recreating this Compose project's containers to verify persistence...")
-        compose("up", "-d", "--no-build", "--force-recreate", "--wait", "--wait-timeout", "240")
+        compose("up", "-d", "--no-build", "--force-recreate", "--wait", "--wait-timeout", "360")
         for service, path in paths:
             if marker(service, path) != key:
                 raise RuntimeError(f"Persistence check failed: {service} {path}")
