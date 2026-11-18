@@ -1,5 +1,6 @@
 .git
 .gitignore
+.dvc
 .venv
 venv
 __pycache__
@@ -16,6 +17,7 @@ frontend/.vite
 data/raw
 data/processed
 data/predictions
+data/mlflow
 models/*
 !models/README.md
 !models/.gitkeep
@@ -26,3 +28,4 @@ mlruns
 artifacts
 logs
 tmp
+output
