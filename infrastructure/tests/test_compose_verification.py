@@ -44,13 +44,17 @@ class VerificationControlsTests(unittest.TestCase):
              patch.object(verify, "communicate", return_value={"metadata": "OK"}), \
              patch.object(verify, "marker", side_effect=marker), \
              patch.object(verify, "experiment_request", side_effect=[
-                 {"experiment_id": "123"}, {"experiments": [{"experiment_id": "123"}]}]), \
+                 {"experiment_id": "123"}, {"experiments": [{"experiment_id": "123"}]}]) as experiment, \
              patch("builtins.print"):
             verify.main()
             calls = [c.args for c in compose.call_args_list]
             self.assertIn(("up", "-d", "--no-build", "--force-recreate", "--wait",
                            "--wait-timeout", "360"), calls)
             self.assertFalse(any("down" in call or "-v" in call for call in calls))
+            # The MLflow REST API treats omitted max_results as zero and rejects it.
+            search_operation, payload = experiment.call_args.args
+            self.assertEqual(search_operation, "search")
+            self.assertGreater(payload["max_results"], 0)
             report = json.loads(next(Path(tmp).rglob("report-*.json")).read_text())
             self.assertEqual(report["persistence"]["status"], "passed")
             self.assertEqual(len(markers), 3)

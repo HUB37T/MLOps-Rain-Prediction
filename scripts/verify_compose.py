@@ -56,12 +56,16 @@ print(json.dumps({'backend_to_mlflow_health': health,
 
 def experiment_request(operation, payload):
     return container_python("backend", """
-import json, os, sys, urllib.request
+import json, os, sys, urllib.error, urllib.request
 request = urllib.request.Request(os.environ['MLFLOW_TRACKING_URI'].rstrip('/')
     + '/api/2.0/mlflow/experiments/' + sys.argv[1],
     data=sys.argv[2].encode(), headers={'Content-Type':'application/json'}, method='POST')
-with urllib.request.urlopen(request, timeout=15) as response:
-    print(response.read().decode())
+try:
+    with urllib.request.urlopen(request, timeout=15) as response:
+        print(response.read().decode())
+except urllib.error.HTTPError as error:
+    print(error.read().decode(), file=sys.stderr)
+    raise
 """, operation, json.dumps(payload))
 
 
@@ -100,7 +104,7 @@ def main():
         for service, path in paths:
             if marker(service, path) != key:
                 raise RuntimeError(f"Persistence check failed: {service} {path}")
-        found = experiment_request("search", {"filter": f"name = '{name}'"})
+        found = experiment_request("search", {"filter": f"name = '{name}'", "max_results": 10})
         if not any(item["experiment_id"] == experiment["experiment_id"]
                    for item in found.get("experiments", [])):
             raise RuntimeError("MLflow experiment metadata did not survive recreation")
