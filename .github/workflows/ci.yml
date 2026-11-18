@@ -31,6 +31,9 @@ jobs:
       - name: Run backend tests
         run: uv run --frozen --extra dev pytest
 
+      - name: Validate Compose manifest without starting services
+        run: python -m unittest discover -s infrastructure/tests -v
+
   frontend:
     name: Frontend tests and build
     runs-on: ubuntu-latest

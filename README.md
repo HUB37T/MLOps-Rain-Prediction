@@ -115,7 +115,7 @@ MLOps-Rain-Prediction/
 │       ├── schemas/            Kontrak dan validasi data
 │       └── training/           Training model
 ├── tests/                      Pengujian unit dan integrasi
-├── docker-compose.yml          Orkestrasi container aplikasi
+├── docker-compose.yaml         Orkestrasi container aplikasi
 ├── pyproject.toml              Konfigurasi dan dependency Python
 └── uv.lock                     Versi dependency Python yang dikunci
 ```
@@ -336,19 +336,54 @@ Dashboard dapat dibuka melalui port `5173` pada menu **Ports**.
 
 ### Docker Compose
 
-Seluruh aplikasi juga dapat dijalankan menggunakan:
+Jalankan ketiga layanan sekaligus dari root repository (di VM):
 
 ```bash
-docker compose up --build
+docker compose up -d --build --wait --wait-timeout 240
 ```
 
-Dashboard tersedia melalui port `8080`, sedangkan backend tersedia melalui port `8000`.
+Dashboard tersedia melalui port `8080`, backend melalui port `8000`, dan MLflow
+melalui `127.0.0.1:5000` pada VM. Untuk membuka MLflow dari laptop, gunakan SSH
+port forwarding; port tracking tidak dipublikasikan ke seluruh jaringan.
+
+Layanan berada di custom bridge `rain-network`, dengan urutan startup
+`mlflow (healthy) -> backend (healthy) -> frontend`. Di dalam container alamat
+tracking adalah `http://mlflow:5000`, bukan localhost. Volume bind mempertahankan
+database prediksi, metadata MLflow dan artefak pada direktori data VM yang sama.
+
+Verifikasi dan ambil screenshot:
+
+```bash
+docker compose ps
+python3 scripts/verify_compose.py
+```
+
+Untuk membuktikan data bertahan setelah container dibuat ulang, jalankan saat
+boleh ada downtime singkat:
+
+```bash
+python3 scripts/verify_compose.py --persistence
+```
+
+Pengujian mengakses metadata MLflow dari container backend melalui nama layanan,
+serta memeriksa metadata eksperimen dan penanda pada ketiga mount data setelah
+recreate. Laporan JSON tersimpan di `artifacts/compose-verification/`.
+Panduan deployment VM, backup perubahan Compose lama, dan bukti untuk laporan
+ada di [panduan orkestrasi](docs/compose-orchestration.md).
+
+API saat ini menyajikan hasil prediksi dari SQLite; inference model tetap
+dijalankan oleh hourly pipeline di host VM. Compose ini tidak mengklaim API
+sudah mengambil model otomatis dari Registry. Uji antar-container membuktikan
+akses API metadata MLflow dan service discovery, bukan pengunduhan model.
 
 Untuk menghentikan aplikasi:
 
 ```bash
 docker compose down
 ```
+
+Direktori bind pada `data/` tetap ada setelah `down`. Jangan menghapus direktori
+tersebut atau memakai perintah penghapusan volume untuk demonstrasi persistensi.
 
 ## Versioning Data
 
