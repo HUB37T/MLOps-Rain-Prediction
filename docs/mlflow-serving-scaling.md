@@ -116,6 +116,7 @@ host saat menjalankan `models serve --env-manager local`.
 
 ```bash
 docker compose --profile serving config --quiet
+docker compose --profile serving build model-api
 docker compose --profile serving up -d --no-deps \
   --wait --wait-timeout 360 model-api model-gateway
 docker compose --profile serving ps model-api model-gateway
@@ -124,6 +125,8 @@ docker compose --profile serving ps model-api model-gateway
 Manifest menetapkan `deploy.replicas: 3` pada `model-api`. Setiap replika
 memiliki satu worker dan memakai image yang sama. Service tidak memiliki
 `container_name` maupun host port tetap, sehingga tidak terjadi bentrok port.
+Mulai LK-11, image replika diturunkan dari image yang dibangun MLflow dan
+menambahkan instrumentasi `/metrics`. Hash artefak model tetap sama.
 Nginx meneruskan permintaan ke `model-api:8080` melalui custom bridge
 `rain-network`, dan memperbarui DNS ketika jumlah replika berubah.
 

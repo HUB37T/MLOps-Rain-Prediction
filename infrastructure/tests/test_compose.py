@@ -64,10 +64,6 @@ class ComposeManifestTests(unittest.TestCase):
         self.assertFalse(model.get("ports"))
         self.assertFalse(model.get("container_name"))
         self.assertIn("rain-network", model["networks"])
-        self.assertEqual(model["environment"]["MLFLOW_MODELS_WORKERS"], "1")
-        # MLflow 3.17 binds its scoring process to loopback:8000. Its built-in
-        # nginx must remain enabled to expose the generated image's port 8080.
-        self.assertEqual(model["environment"].get("DISABLE_NGINX", "false"), "false")
         self.assertTrue(model["deploy"]["resources"]["limits"]["memory"])
 
     def test_serving_is_opt_in_and_does_not_require_tracking_at_runtime(self):

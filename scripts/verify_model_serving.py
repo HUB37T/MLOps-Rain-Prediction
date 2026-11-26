@@ -84,7 +84,7 @@ def main():
     parser.add_argument("--url", default="http://127.0.0.1:5001")
     parser.add_argument("--release-dir", type=Path, default=Path("artifacts/model-serving"))
     parser.add_argument("--replicas", type=int, help="Also check count, image, health and request routing")
-    parser.add_argument("--image", default="rain-risk-model:v2")
+    parser.add_argument("--image", help="Expected replica image (default: image from Compose)")
     parser.add_argument("--requests", type=int, default=30)
     args = parser.parse_args()
     if args.requests < 1 or (args.replicas is not None and args.replicas < 1):
@@ -94,7 +94,11 @@ def main():
     payload = (args.release_dir / "request.json").read_bytes()
     expected = json.loads((args.release_dir / "expected.json").read_text())
     release = json.loads((args.release_dir / "release.json").read_text())
-    details = verify_replicas(args.replicas, args.image, release["artifact_sha256"]) if args.replicas else []
+    details = []
+    if args.replicas:
+        image = args.image or json.loads(compose("config", "--format", "json"))[
+            "services"]["model-api"]["image"]
+        details = verify_replicas(args.replicas, image, release["artifact_sha256"])
     first = invoke(args.url, payload, expected)
     with ThreadPoolExecutor(max_workers=min(6, args.requests)) as pool:
         results = list(pool.map(lambda _: invoke(args.url, payload, expected), range(args.requests)))
