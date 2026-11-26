@@ -546,6 +546,7 @@ Sesudah uji `/invocations` selesai, hentikan proses serving lokal, lalu:
 ```bash
 uv run --frozen --extra ci mlflow models build-docker \
   -m artifacts/model-serving/model -n rain-risk-model:v2 --env-manager local
+docker compose --profile serving build model-api
 docker compose --profile serving up -d --no-deps \
   --wait --wait-timeout 360 model-api model-gateway
 docker compose --profile serving ps model-api model-gateway
@@ -570,6 +571,24 @@ tiga replika dilakukan pada mesin yang cukup RAM; dashboard dan hourly
 pipeline yang sudah berjalan di VM tetap terpisah dari demonstrasi ini.
 Setup registry, screenshot, pengujian distribusi, serta cara menurunkan
 replika tersedia di [panduan LK-10](docs/mlflow-serving-scaling.md).
+
+## Observabilitas Model (LK-11)
+
+Dengan image model LK-10 tersedia, jalankan pada laptop dengan Docker dan Linux cgroup v2:
+
+```bash
+docker compose --profile serving build model-api
+docker compose --profile serving --profile monitoring up -d --no-deps \
+  --wait --wait-timeout 360 model-api model-gateway prometheus grafana
+python3 scripts/simulate_model_traffic.py
+```
+
+Buka [Grafana](http://127.0.0.1:3300/d/rain-model-lk11/rain-risk-7c-observabilitas-model) dan
+[Prometheus Targets](http://127.0.0.1:9090/targets). Prometheus membaca
+`/metrics` dari tiap replika setiap 5 detik. Grafana menampilkan latensi
+p50/p95, throughput per replika, penggunaan CPU/RAM, dan distribusi hasil
+kelas 0/1. Konfigurasi, cara pengujian, dan interpretasi model decay
+tersedia di [panduan LK-11](docs/model-observability.md).
 
 ## Catatan Penggunaan
 

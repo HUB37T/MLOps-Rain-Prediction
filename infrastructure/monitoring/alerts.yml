@@ -1,0 +1,18 @@
+groups:
+  - name: rain-model
+    rules:
+      - alert: ModelReplicaShortfall
+        expr: (sum(up{job="mlflow-model"}) or vector(0)) < 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kurang dari tiga replika model bisa di-scrape"
+      - alert: ModelServerErrors
+        expr: |
+          sum(increase(rain_model_requests_total{status_class="5xx"}[2m])) >= 3
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "MLflow mengembalikan sedikitnya tiga respons 5xx dalam dua menit"
