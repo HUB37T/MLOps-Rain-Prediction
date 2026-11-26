@@ -89,6 +89,61 @@ services:
       retries: 10
       start_period: 90s
 
+  # LK-10: opt in explicitly; normal LK-09 startup does not load three models.
+  model-api:
+    profiles: [serving]
+    image: ${MODEL_SERVING_IMAGE:-rain-risk-model:v2}
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      DISABLE_NGINX: "false"
+      MLFLOW_MODELS_WORKERS: "1"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    expose:
+      - "8080"
+    networks:
+      - rain-network
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8080/ping', timeout=5)
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 90s
+
+  model-gateway:
+    profiles: [serving]
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    depends_on:
+      model-api:
+        condition: service_healthy
+    networks:
+      - rain-network
+    volumes:
+      - ./infrastructure/nginx/model-serving.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "127.0.0.1:${MODEL_SERVING_PORT:-5001}:80"
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/ping]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
 networks:
   rain-network:
     driver: bridge

@@ -528,6 +528,49 @@ UV_BIN=/home/attacker/.local/bin/uv bash scripts/verify_mlops_automation.sh
 Hasil tersimpan di direktori audit baru pada `artifacts/`. Bukti lokal ini tetap
 harus dilengkapi URL GitHub Actions yang selesai sampai registrasi Staging.
 
+## Model Serving dan Replikasi (LK-10)
+
+Model Production dapat disajikan melalui REST API bawaan MLflow. Ekspor
+versi model dan contoh input aslinya, uji lokal, lalu bangun image:
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5004
+uv run --frozen --extra ci python scripts/prepare_model_serving.py
+uv run --frozen --extra ci mlflow models serve \
+  -m artifacts/model-serving/model --env-manager local \
+  --host 127.0.0.1 --port 5003 --workers 1
+```
+
+Sesudah uji `/invocations` selesai, hentikan proses serving lokal, lalu:
+
+```bash
+uv run --frozen --extra ci mlflow models build-docker \
+  -m artifacts/model-serving/model -n rain-risk-model:v2 --env-manager local
+docker compose --profile serving up -d --no-deps \
+  --wait --wait-timeout 360 model-api model-gateway
+docker compose --profile serving ps model-api model-gateway
+curl --fail-with-body -sS http://127.0.0.1:5001/invocations \
+  -H 'Content-Type: application/json' \
+  --data-binary @artifacts/model-serving/request.json
+python3 scripts/verify_model_serving.py --replicas 3 --requests 30
+```
+
+`model-api` memakai `deploy.replicas: 3`, dengan satu endpoint gateway pada
+port 5001. Untuk menaikkan jumlah replika secara dinamis:
+
+```bash
+docker compose --profile serving up -d --no-deps \
+  --scale model-api=4 --wait --wait-timeout 360 model-api
+```
+
+Input harus mengikuti signature 60 fitur hasil preprocessing. Output model
+sklearn yang terdaftar adalah label kelas 0/1, bukan peluang hujan dashboard.
+Model API dan gateway hanya aktif bila profile `serving` dipilih. Demonstrasi
+tiga replika dilakukan pada mesin yang cukup RAM; dashboard dan hourly
+pipeline yang sudah berjalan di VM tetap terpisah dari demonstrasi ini.
+Setup registry, screenshot, pengujian distribusi, serta cara menurunkan
+replika tersedia di [panduan LK-10](docs/mlflow-serving-scaling.md).
+
 ## Catatan Penggunaan
 
 - Jangan menyimpan API key, password, atau informasi rahasia di repository.
